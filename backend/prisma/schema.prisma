@@ -1,0 +1,130 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum ProcessingStatus {
+  RECEIVED
+  NORMALIZED
+  CLASSIFIED
+  REPLY_SELECTED
+  REPLY_SENT
+  REPLY_FAILED
+  DUPLICATE_IGNORED
+  CUSTOMER_LOOKUP
+  CUSTOMER_NOT_FOUND
+  ORDER_PARSING
+  INVALID_ORDER
+  ORDER_CREATING
+  ORDER_CREATED
+  CONFIRMATION_SENT
+  FAILED
+}
+
+enum PipelineStep {
+  WEBHOOK
+  NORMALIZATION
+  CLASSIFICATION
+  REPLY_SELECTION
+  WHATSAPP_REPLY
+  CUSTOMER_LOOKUP
+  ORDER_PARSER
+  ORDER_CREATION
+  CONFIRMATION
+}
+
+enum StepStatus {
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  messageId   String
+  eventType   String   @default("whatsapp_inbound")
+  payload     Json
+  processed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([messageId])
+  @@index([createdAt])
+}
+
+model Message {
+  id           String           @id @default(uuid())
+  messageId    String           @unique
+  phone        String
+  customerName String?
+  messageType  String           @default("text")
+  textContent  String?
+  mediaId      String?
+  category     String?
+  replyText    String?
+  replyStatus  String?
+  status       ProcessingStatus @default(RECEIVED)
+  rawPayload   Json
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  orders       Order[]
+  logs         ProcessingLog[]
+
+  @@index([phone])
+  @@index([messageId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Order {
+  id                 String           @id @default(uuid())
+  messageId          String
+  erpOrderId         String?
+  erpOrderRef        String?
+  phone              String
+  customerRefNo      String?
+  product            String?
+  lensType           String?
+  coating            String?
+  index              String?
+  rxData             Json?
+  rawMessage         String
+  status             ProcessingStatus @default(ORDER_PARSING)
+  erpRequestPayload  Json?
+  erpResponsePayload Json?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  message            Message?         @relation(fields: [messageId], references: [messageId])
+  logs               ProcessingLog[]
+
+  @@index([phone])
+  @@index([messageId])
+  @@index([erpOrderId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ProcessingLog {
+  id           String       @id @default(uuid())
+  messageId    String
+  orderId      String?
+  step         PipelineStep
+  status       StepStatus
+  details      Json?
+  errorType    String?
+  errorMessage String?
+  createdAt    DateTime     @default(now())
+
+  message      Message?     @relation(fields: [messageId], references: [messageId])
+  order        Order?       @relation(fields: [orderId], references: [id])
+
+  @@index([messageId])
+  @@index([orderId])
+  @@index([step])
+  @@index([createdAt])
+}
