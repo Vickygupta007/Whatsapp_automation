@@ -121,6 +121,7 @@ export interface RioErpOrderStatusData {
   product?: string | null;
   lensType?: string | null;
   coating?: string | null;
+  index?: string | null;
   amount?: number | null;
   challanNo?: string | null;
   [key: string]: unknown;
@@ -140,10 +141,26 @@ export interface RioErpOrdersListResponse {
   rawResponse?: unknown;
 }
 
+export interface DeliveryTaskData {
+  id: string;
+  invoiceNo: string;
+  customerName?: string;
+  shopName?: string;
+  deliveryAddress?: string;
+  status: string;
+  taskType?: string;
+  deliveryBoyId?: string | null;
+  proofPhotoPath?: string | null;
+  [key: string]: unknown;
+}
+
 export interface IRioErpClient {
   findCustomerByPhone(phone: string): Promise<CustomerLookupResult>;
   createOrder(orderData: RioErpOrderRequest): Promise<RioErpOrderResponse>;
   getOrderStatus(orderId: string): Promise<RioErpOrderStatusResponse>;
   getOrdersByPhone?(phone: string): Promise<RioErpOrdersListResponse>;
+  getDeliveryTasks?(): Promise<DeliveryTaskData[]>;
+  getDeliveryTaskByOrderId?(orderId: string): Promise<DeliveryTaskData | null>;
 }
+
 

@@ -242,31 +242,61 @@ export class OrderParser {
   }
 
   /**
-   * Extracts Lens Index (e.g., 1.50, 1.56, 1.59, 1.60, 1.61, 1.67, 1.74)
+   * Extracts Lens Index (e.g., 1.50, 1.53, 1.56, 1.58, 1.59, 1.60, 1.61, 1.67, 1.74, 1.76, 1.80, 1.90)
    * Ensures that signed diopters like -1.50 or +1.50 are NOT matched as index!
    */
   private static extractIndex(message: string, rx?: RxPrescription): string | null {
-    // 1. Explicit "Index 1.56" or "*Index:* 1.56"
-    const explicitMatch = /(?:index|idx)[^\S\r\n*]*[:=][^\S\r\n*]*([12]\.\d{2})/i.exec(message);
-    if (explicitMatch && explicitMatch[1] && LENS_INDICES.includes(explicitMatch[1])) {
-      return explicitMatch[1];
+    // 1. Explicit tag: Index: 1.53, *Index:* 1.56, Idx: 1.60, etc.
+    const explicitMatch = /(?:^|[\s*•_`-])(?:index|idx|refractive\s*index|lens\s*index)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+)/i.exec(message);
+    if (explicitMatch && explicitMatch[1]) {
+      const rawVal = explicitMatch[1].replace(/\s*[(_].*?[)_]/g, '').trim();
+      const cleaned = this.cleanFieldValue(rawVal);
+      if (cleaned && !this.isReservedKeyword(cleaned)) {
+        // Check for named materials
+        if (/\b(?:poly|polycarbonate)\b/i.test(cleaned)) return '1.59';
+        if (/\b(?:trivex|phoenix)\b/i.test(cleaned)) return '1.53';
+        if (/\b(?:cr-?39|standard(?:\s*plastic)?)\b/i.test(cleaned)) return '1.50';
+
+        // Extract decimal number like 1.53, 1.56, 1.5, 1.60, 1.67, 1.74
+        const numMatch = /\b([12]\.\d{1,3})\b/.exec(cleaned);
+        if (numMatch) {
+          const num = numMatch[1];
+          // If 1 decimal digit like 1.5, 1.6, 1.7, standardize to 1.50, 1.60, 1.70
+          if (/^[12]\.\d$/.test(num)) {
+            return `${num}0`;
+          }
+          return num;
+        }
+        return cleaned;
+      }
     }
 
-    // 2. Scan for indices in message that are NOT signed diopters (i.e. not preceded by - or +)
-    // Check indices in reverse order of specificity: 1.74, 1.67, 1.61, 1.60, 1.59, 1.56, 1.50
-    const sortedIndices = ['1.74', '1.67', '1.61', '1.60', '1.59', '1.56', '1.50'];
+    // 2. Scan for named materials in free text
+    if (/\b(?:polycarbonate|poly(?:\s*lens)?)\b/i.test(message)) return '1.59';
+    if (/\b(?:trivex|phoenix)\b/i.test(message)) return '1.53';
+    if (/\b(?:cr-?39)\b/i.test(message)) return '1.50';
+
+    // 3. Scan for indices in message that are NOT signed diopters (i.e. not preceded by - or +)
+    // Check indices in reverse order of specificity
+    const sortedIndices = [
+      '1.90', '1.80', '1.76', '1.74', '1.70', '1.67', '1.66',
+      '1.61', '1.60', '1.59', '1.58', '1.57', '1.56', '1.55',
+      '1.54', '1.53', '1.50',
+    ];
 
     for (const idx of sortedIndices) {
       // Must not be preceded by a + or - sign
       const regex = new RegExp(`(?<![+-])\\b${idx.replace('.', '\\.')}\\b`, 'i');
       if (regex.test(message)) {
-        // Special case for 1.50: verify it's not one of the extracted prescription powers
-        if (idx === '1.50' && rx) {
-          const isRightSph150 = rx.right.sph === '-1.50' || rx.right.sph === '+1.50' || rx.right.sph === '1.50';
-          const isLeftSph150 = rx.left.sph === '-1.50' || rx.left.sph === '+1.50' || rx.left.sph === '1.50';
-          // Count occurrences of "1.50" in message
-          const count = (message.match(/1\.50/g) || []).length;
-          const rxCount = (isRightSph150 ? 1 : 0) + (isLeftSph150 ? 1 : 0);
+        // Special case for powers matching index numbers (e.g. 1.50, 1.75, etc.)
+        if (rx) {
+          const isRightSphMatch = rx.right.sph === `-${idx}` || rx.right.sph === `+${idx}` || rx.right.sph === idx;
+          const isLeftSphMatch = rx.left.sph === `-${idx}` || rx.left.sph === `+${idx}` || rx.left.sph === idx;
+          const isRightCylMatch = rx.right.cyl === `-${idx}` || rx.right.cyl === `+${idx}` || rx.right.cyl === idx;
+          const isLeftCylMatch = rx.left.cyl === `-${idx}` || rx.left.cyl === `+${idx}` || rx.left.cyl === idx;
+
+          const count = (message.match(new RegExp(`\\b${idx.replace('.', '\\.')}\\b`, 'g')) || []).length;
+          const rxCount = (isRightSphMatch ? 1 : 0) + (isLeftSphMatch ? 1 : 0) + (isRightCylMatch ? 1 : 0) + (isLeftCylMatch ? 1 : 0);
           if (count <= rxCount) {
             // It was part of the prescription, not an index
             continue;

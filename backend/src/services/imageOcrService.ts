@@ -129,7 +129,7 @@ Extract all optical prescription details:
 5. Coating:
    - Extract ONLY if explicitly written on the slip (e.g. "BLUE CUT", "ARC", "HMC", "HC"). If coating is NOT written, return null. DO NOT default or guess "BLUE CUT".
 6. Index:
-   - Extract ONLY if explicitly written on the slip (e.g. "1.56", "1.60", "1.67", "1.74"). If index is NOT written, return null. DO NOT default or guess "1.56".
+   - Extract ONLY if explicitly written on the slip (e.g. "1.50", "1.53", "1.56", "1.58", "1.59", "1.60", "1.67", "1.74"). If index is NOT written, return null. DO NOT default or guess "1.56".
 7. Customer Reference (Customer Name / Optician / Ref):
    - Look for "CUSTOMER NAME", "OPTICIAN NAME", "PT NAME", "REF", "ORDER NO". If both customer name and optician name are present, combine them like "Customer Name / Optician Name" (e.g. "Sharvari / Amin optics").
 8. Frame & Lens Specifications (look closely at all labels):

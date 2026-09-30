@@ -1,5 +1,6 @@
 import {
   CustomerLookupResult,
+  DeliveryTaskData,
   IRioErpClient,
   RioErpCustomer,
   RioErpOrderRequest,
@@ -13,6 +14,25 @@ import { normalizePhone } from '../../utils/phoneNormalizer.js';
 
 export class MockRioErpClient implements IRioErpClient {
   private orders: Map<string, RioErpOrderStatusData> = new Map([
+    [
+      'SO-2026-999999999',
+      {
+        id: 'mock_del_order_000',
+        orderId: 'SO-2026-999999999',
+        customerRefNo: 'ASH-DELIVERED',
+        customer: 'Ash',
+        orderDate: '2026-09-24T05:00',
+        status: 'Delivered',
+        pendingAt: 'Delivered',
+        company: 'Rio',
+        labLocation: 'RIO-AHMEDABAD',
+        product: 'I SIGHT',
+        lensType: 'Single Vision',
+        coating: 'BLUE CUT',
+        amount: 0,
+        challanNo: null,
+      },
+    ],
     [
       'SO-2026-479435957',
       {
@@ -68,6 +88,60 @@ export class MockRioErpClient implements IRioErpClient {
         coating: 'BLUE CUT',
         amount: 0,
         challanNo: null,
+      },
+    ],
+  ]);
+  private deliveryTasks: Map<string, DeliveryTaskData> = new Map([
+    [
+      'SO-2026-999999999',
+      {
+        id: 'DEL_000',
+        invoiceNo: 'SO-2026-999999999',
+        customerName: 'Ash',
+        shopName: 'Ash Optics',
+        deliveryAddress: 'Shop 1, Main Road',
+        status: 'Delivered',
+        taskType: 'DELIVERY',
+        deliveryBoyId: 'DB101',
+      },
+    ],
+    [
+      'SO-2026-479435957',
+      {
+        id: 'DEL_001',
+        invoiceNo: 'SO-2026-479435957',
+        customerName: 'Ash',
+        shopName: 'Ash Optics',
+        deliveryAddress: 'Shop 1, Main Road',
+        status: 'Out for Delivery',
+        taskType: 'DELIVERY',
+        deliveryBoyId: 'DB101',
+      },
+    ],
+    [
+      'SO-2026-581335720',
+      {
+        id: 'DEL_002',
+        invoiceNo: 'SO-2026-581335720',
+        customerName: 'Ash',
+        shopName: 'Ash Optics',
+        deliveryAddress: 'Shop 1, Main Road',
+        status: 'Pending Pickup',
+        taskType: 'DELIVERY',
+        deliveryBoyId: 'DB101',
+      },
+    ],
+    [
+      'SO-2026-00124',
+      {
+        id: 'DEL_003',
+        invoiceNo: 'SO-2026-00124',
+        customerName: 'ABC Optical',
+        shopName: 'ABC Optical',
+        deliveryAddress: 'Connaught Place, Delhi',
+        status: 'Delivered',
+        taskType: 'DELIVERY',
+        deliveryBoyId: 'DB102',
       },
     ],
   ]);
@@ -222,6 +296,7 @@ export class MockRioErpClient implements IRioErpClient {
       product: orderData.product || 'I SIGHT',
       lensType: orderData.lensType || 'Single Vision',
       coating: orderData.coating || 'BLUE CUT',
+      index: orderData.index || null,
       amount: 0,
       challanNo: null,
     });
@@ -304,4 +379,27 @@ export class MockRioErpClient implements IRioErpClient {
     const normalized = normalizePhone(customer.phone);
     this.registeredCustomers.set(normalized, { ...customer, phone: normalized });
   }
+
+  public setDeliveryTask(task: DeliveryTaskData): void {
+    this.deliveryTasks.set(task.invoiceNo, task);
+  }
+
+  public clearDeliveryTasks(): void {
+    this.deliveryTasks.clear();
+  }
+
+  public async getDeliveryTasks(): Promise<DeliveryTaskData[]> {
+    return Array.from(this.deliveryTasks.values());
+  }
+
+  public async getDeliveryTaskByOrderId(orderId: string): Promise<DeliveryTaskData | null> {
+    const clean = orderId.trim().toLowerCase();
+    for (const [key, val] of this.deliveryTasks.entries()) {
+      if (key.trim().toLowerCase() === clean || (val.id && val.id.trim().toLowerCase() === clean)) {
+        return val;
+      }
+    }
+    return null;
+  }
 }
+

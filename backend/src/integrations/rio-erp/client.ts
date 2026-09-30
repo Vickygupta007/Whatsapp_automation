@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../../config/env.js';
-import { CustomerLookupResult, IRioErpClient, RioErpOrderRequest, RioErpOrderResponse, RioErpOrderStatusResponse, RioErpOrdersListResponse } from '../../types/erp.js';
+import { CustomerLookupResult, DeliveryTaskData, IRioErpClient, RioErpOrderRequest, RioErpOrderResponse, RioErpOrderStatusResponse, RioErpOrdersListResponse } from '../../types/erp.js';
 import { logger } from '../../utils/logger.js';
 import { normalizePhone } from '../../utils/phoneNormalizer.js';
 import { RioErpMapper } from './mappers.js';
@@ -527,4 +527,40 @@ export class LiveRioErpClient implements IRioErpClient {
       };
     }
   }
+
+  public async getDeliveryTasks(): Promise<DeliveryTaskData[]> {
+    try {
+      const token = await this.getStaffToken();
+      if (!token) {
+        logger.warn('[LiveRioErpClient] Cannot fetch delivery tasks: No staff token available');
+        return [];
+      }
+
+      const res = await axios.get(`${config.RIO_ERP_BASE_URL}/api/delivery/tasks`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 8000,
+      });
+
+      const tasks = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+        ? res.data
+        : [];
+      return tasks;
+    } catch (err: unknown) {
+      logger.warn(`[LiveRioErpClient] Failed to fetch delivery tasks from Rio ERP: ${String(err)}`);
+      return [];
+    }
+  }
+
+  public async getDeliveryTaskByOrderId(orderId: string): Promise<DeliveryTaskData | null> {
+    const tasks = await this.getDeliveryTasks();
+    const clean = orderId.trim().toLowerCase();
+    const found = tasks.find(
+      (t) => (t.invoiceNo && t.invoiceNo.trim().toLowerCase() === clean) ||
+             (t.id && t.id.trim().toLowerCase() === clean)
+    );
+    return found || null;
+  }
 }
+

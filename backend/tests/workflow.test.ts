@@ -10,7 +10,7 @@ import { MetaWebhookPayload, NormalizedMessage } from '../src/types/webhook.js';
 describe('WhatsApp Auto-Reply System - 12 Core Test Suites', () => {
   let mockErp: MockRioErpClient;
   let workflow: WorkflowService;
-  const registeredPhone = '919876543210'; // ABC Optical in MockRioErpClient
+  const registeredPhone = '917718043078'; // Ash in MockRioErpClient
   const unregisteredPhone = '919900000000';
 
   beforeEach(() => {
@@ -152,7 +152,7 @@ describe('WhatsApp Auto-Reply System - 12 Core Test Suites', () => {
     expect(resultWithId.replyText).toContain('SO-2026-479435957');
     expect(resultWithId.replyText).toContain('Blocking');
     expect(resultWithId.replyText).toContain('RIO-AHMEDABAD');
-    expect(resultWithId.replyText).toContain('In Progress');
+    expect(resultWithId.replyText).toContain('Out for Delivery');
 
     // Test with a non-existent order ID
     const msgNotFound: NormalizedMessage = {
@@ -558,14 +558,10 @@ R: -1.00 cyl`;
 
     expect(statusResult.category).toBe('ORDER_STATUS');
     expect(statusResult.status).toBe('REPLY_SENT');
-    expect(statusResult.replyText).toContain('Your Recent Orders');
+    expect(statusResult.replyText).toContain('Your Active Orders');
     expect(statusResult.replyText).toContain('SO-2026-');
-    expect(statusResult.replyText).toContain('Select an order');
-    // Ensure number reply prompt is removed
-    expect(statusResult.replyText).not.toContain('Reply with the number');
-    expect(statusResult.replyText).not.toContain('(1, 2, ...)');
     expect(WhatsAppClient.sentMessagesLog.length).toBe(1);
-    expect(WhatsAppClient.sentMessagesLog[0].message).toContain('Your Recent Orders');
+    expect(WhatsAppClient.sentMessagesLog[0].message).toContain('Your Active Orders');
   });
 
   // Test 16: Customer selects order by number (e.g. "1") and sees live status
@@ -693,8 +689,10 @@ R: -1.00 cyl`;
       orders: [...abcOrders, otherOrder] as any,
     });
 
+    const abcPhone = '919876543210'; // ABC Optical in MockRioErpClient
+
     const statusMsg: NormalizedMessage = {
-      phone: registeredPhone,
+      phone: abcPhone,
       customerName: 'ABC Optical',
       messageId: 'wamid.STATUS_LIST_ABC',
       messageType: 'text',
@@ -715,7 +713,7 @@ R: -1.00 cyl`;
     // Since there are 4 orders (> 3), WhatsApp interactive list should be sent so customer can tap ANY order
     expect(listSpy).toHaveBeenCalledTimes(1);
     const [sentPhone, sentBody, sentButtonText, sentSections] = listSpy.mock.calls[0];
-    expect(sentPhone).toBe(registeredPhone);
+    expect(sentPhone).toBe(abcPhone);
     expect(sentButtonText).toBe('📋 Select Order');
     expect(sentSections[0].rows.length).toBe(4);
     expect(sentSections[0].rows.map((r: { id: string }) => r.id)).toEqual([
@@ -728,7 +726,7 @@ R: -1.00 cyl`;
     // Customer taps an order in the interactive list
     WhatsAppClient.clearSentLog();
     const tapMsg: NormalizedMessage = {
-      phone: registeredPhone,
+      phone: abcPhone,
       customerName: 'ABC Optical',
       messageId: 'wamid.TAP_ORDER_01',
       messageType: 'interactive',
@@ -861,7 +859,7 @@ R: -1.00 cyl`;
     };
     const res2 = await workflow.processNormalizedMessage(msg2);
     expect(res2.category).toBe('ORDER_STATUS');
-    expect(res2.replyText).toContain('Your Recent Orders');
+    expect(res2.replyText).toContain('Your Active Orders');
 
     // "status" -> ORDER_STATUS (List of orders)
     const msgStatus: NormalizedMessage = {
@@ -875,7 +873,7 @@ R: -1.00 cyl`;
     };
     const resStatus = await workflow.processNormalizedMessage(msgStatus);
     expect(resStatus.category).toBe('ORDER_STATUS');
-    expect(resStatus.replyText).toContain('Your Recent Orders');
+    expect(resStatus.replyText).toContain('Your Active Orders');
 
     // Option 3 -> HELP
     const msg3: NormalizedMessage = {
@@ -890,6 +888,95 @@ R: -1.00 cyl`;
     const res3 = await workflow.processNormalizedMessage(msg3);
     expect(res3.category).toBe('HELP');
     expect(res3.replyText).toContain('Help');
+  });
+
+  // Test 21: Delivery Status Filtering and Customer Isolation
+  it('21. WhatsApp Delivery Status: should filter out Delivered orders and show ONLY active orders for "2" and "STATUS"', async () => {
+    WhatsAppClient.clearSentLog();
+
+    // Customer Ash has:
+    // Order A: SO-2026-999999999 -> Delivered
+    // Order B: SO-2026-479435957 -> Out for Delivery
+    // Order C: SO-2026-581335720 -> Pending Pickup
+
+    // 1. Send: "2"
+    const msg2: NormalizedMessage = {
+      phone: registeredPhone, // Ash: 917718043078
+      customerName: 'Ash',
+      messageId: 'wamid.DELIVERY_TEST_2',
+      messageType: 'text',
+      text: '2',
+      mediaId: null,
+      rawPayload: {},
+    };
+    const res2 = await workflow.processNormalizedMessage(msg2);
+
+    expect(res2.category).toBe('ORDER_STATUS');
+    expect(res2.replyText).toContain('Your Active Orders');
+    // Order B -> Out for Delivery MUST appear
+    expect(res2.replyText).toContain('SO-2026-479435957');
+    expect(res2.replyText).toContain('Out for Delivery');
+    // Order C -> Pending Pickup MUST appear
+    expect(res2.replyText).toContain('SO-2026-581335720');
+    expect(res2.replyText).toContain('Pending Pickup');
+    // Order A -> Delivered MUST NOT appear
+    expect(res2.replyText).not.toContain('SO-2026-999999999');
+
+    // 2. Send: "STATUS" -> Expected result must be identical
+    const msgStatus: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.DELIVERY_TEST_STATUS',
+      messageType: 'text',
+      text: 'STATUS',
+      mediaId: null,
+      rawPayload: {},
+    };
+    const resStatus = await workflow.processNormalizedMessage(msgStatus);
+    expect(resStatus.replyText).toBe(res2.replyText);
+
+    // 3. Test a customer where all orders are Delivered
+    // ABC Optical ('919876543210') only has SO-2026-00124 with status 'Delivered'
+    const msgAllDelivered: NormalizedMessage = {
+      phone: '919876543210',
+      customerName: 'ABC Optical',
+      messageId: 'wamid.DELIVERY_ALL_DELIVERED',
+      messageType: 'text',
+      text: 'STATUS',
+      mediaId: null,
+      rawPayload: {},
+    };
+    const resAllDelivered = await workflow.processNormalizedMessage(msgAllDelivered);
+    expect(resAllDelivered.replyText).toBe('✅ You have no active orders. All your orders have been delivered.');
+
+    // Also verify "2" returns the same message for customer with all orders delivered
+    const msgAllDelivered2: NormalizedMessage = {
+      phone: '919876543210',
+      customerName: 'ABC Optical',
+      messageId: 'wamid.DELIVERY_ALL_DELIVERED_2',
+      messageType: 'text',
+      text: '2',
+      mediaId: null,
+      rawPayload: {},
+    };
+    const resAllDelivered2 = await workflow.processNormalizedMessage(msgAllDelivered2);
+    expect(resAllDelivered2.replyText).toBe('✅ You have no active orders. All your orders have been delivered.');
+
+    // 4. Verify Customer Isolation:
+    // Customer A (Ash) must NEVER see Customer B's (ABC Optical) order details
+    const msgCrossCustomer: NormalizedMessage = {
+      phone: registeredPhone, // Ash
+      customerName: 'Ash',
+      messageId: 'wamid.SECURITY_CROSS_CUSTOMER',
+      messageType: 'text',
+      text: 'SO-2026-00124', // ABC Optical's order
+      mediaId: null,
+      rawPayload: {},
+    };
+    const resCross = await workflow.processNormalizedMessage(msgCrossCustomer);
+    expect(resCross.replyText).toContain('Order Not Found');
+    expect(resCross.replyText).not.toContain('Edging & Fitting');
+    expect(resCross.replyText).not.toContain('ABC Optical');
   });
 });
 

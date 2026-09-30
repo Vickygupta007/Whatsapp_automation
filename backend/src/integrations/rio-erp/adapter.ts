@@ -1,6 +1,7 @@
 import { config } from '../../config/env.js';
 import {
   CustomerLookupResult,
+  DeliveryTaskData,
   IRioErpClient,
   RioErpOrderRequest,
   RioErpOrderResponse,
@@ -56,6 +57,20 @@ export class RioErpAdapter implements IRioErpClient {
       return this.client.getOrdersByPhone(phone);
     }
     return { success: true, orders: [] };
+  }
+
+  public async getDeliveryTasks(): Promise<DeliveryTaskData[]> {
+    if (this.client.getDeliveryTasks) {
+      return this.client.getDeliveryTasks();
+    }
+    return [];
+  }
+
+  public async getDeliveryTaskByOrderId(orderId: string): Promise<DeliveryTaskData | null> {
+    if (this.client.getDeliveryTaskByOrderId) {
+      return this.client.getDeliveryTaskByOrderId(orderId);
+    }
+    return null;
   }
 
   public getRawClient(): IRioErpClient {

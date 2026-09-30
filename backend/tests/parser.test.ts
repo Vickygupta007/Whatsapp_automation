@@ -149,5 +149,59 @@ Remark: —`;
     expect(result.order.fittingType).toBe('Full Rim');
     expect(result.order.remarks).toBeNull();
   });
+
+  it('should correctly parse various index values including 1.50, 1.53, 1.56, 1.60, 1.67, 1.74, and material names', () => {
+    // 1.53 (Trivex)
+    const res153 = OrderParser.parse('R: -1.00 L: -1.00 Index: 1.53 Coating: HMC', dummyPhone);
+    expect(res153.order.index).toBe('1.53');
+
+    // 1.50 standard
+    const res150 = OrderParser.parse('R: -1.00 L: -1.00 Index: 1.50 Coating: ARC', dummyPhone);
+    expect(res150.order.index).toBe('1.50');
+
+    // 1.5 shorthand -> 1.50
+    const res15 = OrderParser.parse('R: -1.00 L: -1.00 Index: 1.5 Coating: ARC', dummyPhone);
+    expect(res15.order.index).toBe('1.50');
+
+    // 1.6 shorthand -> 1.60
+    const res16 = OrderParser.parse('R: -1.00 L: -1.00 Index: 1.6 Coating: Bluecut', dummyPhone);
+    expect(res16.order.index).toBe('1.60');
+
+    // 1.58
+    const res158 = OrderParser.parse('R: -1.00 L: -1.00 Index: 1.58 Coating: ARC', dummyPhone);
+    expect(res158.order.index).toBe('1.58');
+
+    // 1.67
+    const res167 = OrderParser.parse('R: -1.00 L: -1.00 Index: 1.67 Coating: Bluecut', dummyPhone);
+    expect(res167.order.index).toBe('1.67');
+
+    // 1.74
+    const res174 = OrderParser.parse('R: -1.00 L: -1.00 Index: 1.74 Coating: Bluecut', dummyPhone);
+    expect(res174.order.index).toBe('1.74');
+
+    // 1.76
+    const res176 = OrderParser.parse('R: -1.00 L: -1.00 Index: 1.76 Coating: Bluecut', dummyPhone);
+    expect(res176.order.index).toBe('1.76');
+
+    // Named material: Trivex -> 1.53
+    const resTrivex = OrderParser.parse('R: -1.00 L: -1.00 Index: Trivex Coating: ARC', dummyPhone);
+    expect(resTrivex.order.index).toBe('1.53');
+
+    // Named material: Poly -> 1.59
+    const resPoly = OrderParser.parse('R: -1.00 L: -1.00 Index: Polycarbonate Coating: Blue Cut', dummyPhone);
+    expect(resPoly.order.index).toBe('1.59');
+
+    // Named material: CR-39 -> 1.50
+    const resCR = OrderParser.parse('R: -1.00 L: -1.00 Index: CR-39 Coating: ARC', dummyPhone);
+    expect(resCR.order.index).toBe('1.50');
+  });
+
+  it('should not confuse prescription diopter powers with lens index when no explicit index is given', () => {
+    const raw = 'R: -1.50 L: -1.50 Bluecut';
+    const result = OrderParser.parse(raw, dummyPhone);
+    expect(result.order.rx.right.sph).toBe('-1.50');
+    expect(result.order.rx.left.sph).toBe('-1.50');
+    expect(result.order.index).toBeNull();
+  });
 });
 

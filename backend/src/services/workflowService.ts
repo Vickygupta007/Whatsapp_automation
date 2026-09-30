@@ -5,8 +5,7 @@ import { WhatsAppClient } from '../integrations/whatsapp/client.js';
 import { OrderParser } from '../parsers/orderParser.js';
 import { ClassifierService } from './classifierService.js';
 import { ImageOcrService } from './imageOcrService.js';
-import { AUTO_REPLY_TEMPLATES } from '../types/classifier.js';
-import { IRioErpClient } from '../types/erp.js';
+import { DeliveryTaskData, IRioErpClient } from '../types/erp.js';
 import { ParsedOrder } from '../types/optical.js';
 import { ProcessingStatus, StepLogRecord, WorkflowExecutionResult } from '../types/pipeline.js';
 import { NormalizedMessage } from '../types/webhook.js';
@@ -575,7 +574,7 @@ Remark: __
       } else if (classification.category === 'ORDER_STATUS') {
         let targetOrderId = (classification.orderDetails?.queriedOrderId as string) || undefined;
         if (!targetOrderId && text) {
-          const match = text.match(/\b(SO-\d{4}-[A-Za-z0-9]+)\b/i);
+          const match = text.match(/\b(SO-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)\b/i);
           if (match) {
             targetOrderId = match[1].toUpperCase();
           }
@@ -591,15 +590,44 @@ Remark: __
               order: statusResult.order,
             });
 
-            if (statusResult.success && statusResult.order) {
-              const ord = statusResult.order;
-              const localDbOrder = await AppRepository.findOrderByErpOrderId(targetOrderId);
+            const cleanCustomerPhone = phone.replace(/\D/g, '').slice(-10);
+            const partyId = party?.id;
+            const partyAccountId = party?.accountId;
+            const partyName = party?.name ? party.name.trim().toLowerCase() : '';
+
+            const ord = statusResult.order;
+            const ordPartyId = ord?.partyId || (ord as any)?.details?.partyId;
+            const ordAccountId = (ord as any)?.details?.partyAccountId;
+            const ordCustomer = ((ord as any)?.customer || (ord as any)?.details?.customer || '').trim().toLowerCase();
+            const ordPhone = ((ord as any)?.details?.whatsappSenderPhone || (ord as any)?.details?.phone || (ord as any)?.phone || '').replace(/\D/g, '').slice(-10);
+
+            const localDbOrder = await AppRepository.findOrderByErpOrderId(targetOrderId);
+            const cleanDbPhone = localDbOrder?.phone ? localDbOrder.phone.replace(/\D/g, '').slice(-10) : '';
+
+            const belongsToCustomer = Boolean(
+              (ordPartyId && partyId && ordPartyId === partyId) ||
+              (ordAccountId && partyAccountId && ordAccountId === partyAccountId) ||
+              (ordCustomer && partyName && (ordCustomer.includes(partyName) || partyName.includes(ordCustomer))) ||
+              (ordPhone && cleanCustomerPhone && ordPhone === cleanCustomerPhone) ||
+              (cleanDbPhone && cleanCustomerPhone && cleanDbPhone === cleanCustomerPhone)
+            );
+
+            if (statusResult.success && ord && belongsToCustomer) {
+              // Read CURRENT delivery status from the existing delivery system
+              let deliveryTask: DeliveryTaskData | null = null;
+              if (this.erpAdapter.getDeliveryTaskByOrderId) {
+                try {
+                  deliveryTask = await this.erpAdapter.getDeliveryTaskByOrderId(targetOrderId);
+                } catch (taskErr: unknown) {
+                  logger.warn(`[WorkflowService] DeliveryTask lookup failed for ${targetOrderId}: ${String(taskErr)}`);
+                }
+              }
 
               // Coating resolution logic:
-              // 1. If local DB recorded a real coating entered by customer (e.g. BLUE CUT, HMC, etc.), use it
-              // 2. If local DB order exists but coating is empty, null, '-', or '__', customer did not order coating -> do NOT show ARC
+              // 1. If local DB recorded a real coating entered by customer, use it
+              // 2. If local DB order exists but coating is empty or default, do NOT show ARC
               // 3. If local DB order has explicit ARC, use ARC
-              // 4. If no local DB order found, check if ord has a real non-ARC coatingName; if ord only has default 'ARC', suppress it
+              // 4. If candidate coating is not ARC/UNCOTE, use it
               let realCoating: string | null = null;
               if (localDbOrder) {
                 if (localDbOrder.coating && localDbOrder.coating !== '-' && localDbOrder.coating !== '__' && localDbOrder.coating.toUpperCase() !== 'UNCOTE') {
@@ -620,7 +648,7 @@ Remark: __
               const coating = realCoating ? ` (${realCoating})` : '';
               const ref = ord.customerRefNo || localDbOrder?.customerRefNo || 'N/A';
               const stage = ord.pendingAt || 'Lab Processing';
-              const currentStatus = ord.status || 'In Progress';
+              const currentStatus = deliveryTask?.status || ord.status || 'In Progress';
 
               replyText = `🔍 *ORDER STATUS*
 
@@ -638,12 +666,40 @@ Remark: __
 🏭 Our lab is actively processing your order.
 
 💬 Reply *STATUS* anytime to see all your orders!`;
+            } else if (localDbOrder && cleanDbPhone && cleanDbPhone === cleanCustomerPhone) {
+              let deliveryTask: DeliveryTaskData | null = null;
+              if (this.erpAdapter.getDeliveryTaskByOrderId) {
+                try {
+                  deliveryTask = await this.erpAdapter.getDeliveryTaskByOrderId(targetOrderId);
+                } catch {}
+              }
+              const currentStatus = deliveryTask?.status || localDbOrder.status || 'In Progress';
+              const formattedDate = localDbOrder.createdAt ? localDbOrder.createdAt.toISOString().slice(0, 10) : 'Today';
+              const realCoating = (localDbOrder.coating && localDbOrder.coating !== '-' && localDbOrder.coating !== '__' && localDbOrder.coating.toUpperCase() !== 'UNCOTE') ? ` (${localDbOrder.coating})` : '';
+              const lens = localDbOrder.lensType ? ` (${localDbOrder.lensType})` : '';
+
+              replyText = `🔍 *ORDER STATUS*
+
+📦 Order: *${localDbOrder.erpOrderId || targetOrderId}*
+⚡ Status: *${currentStatus}*
+🔬 Stage: *Lab Processing*
+
+📋 *Details:*
+• Ref: *${localDbOrder.customerRefNo || 'N/A'}*
+• Product: *${localDbOrder.product || ''}*${lens}${realCoating}
+• Lab: *${party?.labName || 'RIO-AHMEDABAD'}*
+• Account: *${party?.name || 'Customer'}*
+• Date: *${formattedDate}*
+
+🏭 Our lab is actively processing your order.
+
+💬 Reply *STATUS* anytime to see all your orders!`;
             } else {
               replyText = `🔍 *Order Not Found*
 
 We could not find an active order with ID: *${targetOrderId}*.
 
-Please check your Order ID or reply *STATUS* to see all your recent orders.`;
+Please check your Order ID or reply *STATUS* to see all your active orders.`;
             }
           } catch (statusErr: unknown) {
             const errMsg = statusErr instanceof Error ? statusErr.message : String(statusErr);
@@ -652,7 +708,7 @@ Please check your Order ID or reply *STATUS* to see all your recent orders.`;
             replyText = `⚠️ We are currently unable to fetch live status from Rio ERP for order *${targetOrderId}*. Our team is checking on it. Please try again shortly or reply *HELP*.`;
           }
         } else {
-          // Customer asked for STATUS without an order ID: Fetch and show all orders for this customer
+          // Customer asked for STATUS without an order ID: Fetch and show active non-delivered orders for this customer
           const seenIds = new Set<string>();
           const combinedOrders: Array<{
             orderId: string;
@@ -755,6 +811,69 @@ Please check your Order ID or reply *STATUS* to see all your recent orders.`;
             logger.warn(`[WorkflowService] Local DB orders query error: ${String(dbErr)}`);
           }
 
+          // 3. Find corresponding DeliveryTask for each order using existing delivery system
+          const deliveryTaskMap = new Map<string, DeliveryTaskData>();
+          if (this.erpAdapter.getDeliveryTasks) {
+            try {
+              const tasks = await this.erpAdapter.getDeliveryTasks();
+              for (const t of tasks) {
+                if (t.invoiceNo) {
+                  deliveryTaskMap.set(t.invoiceNo.trim().toUpperCase(), t);
+                }
+                if (t.id) {
+                  deliveryTaskMap.set(t.id.trim().toUpperCase(), t);
+                }
+              }
+            } catch (err: unknown) {
+              logger.warn(`[WorkflowService] Failed to fetch delivery tasks: ${String(err)}`);
+            }
+          }
+
+          interface ActiveOrder {
+            orderId: string;
+            customerRefNo?: string | null;
+            product?: string | null;
+            coating?: string | null;
+            lensType?: string | null;
+            status?: string | null;
+            deliveryStatus: string;
+            pendingAt?: string | null;
+            orderDate?: string | null;
+          }
+
+          // 4. Read CURRENT delivery status and 5. Filter out every order whose delivery status is "Delivered"
+          const activeOrders: ActiveOrder[] = [];
+
+          for (const ord of combinedOrders) {
+            let deliveryStatus = 'Pending Pickup';
+            let task = deliveryTaskMap.get(ord.orderId.trim().toUpperCase()) ||
+              (ord.customerRefNo ? deliveryTaskMap.get(ord.customerRefNo.trim().toUpperCase()) : undefined);
+
+            if (!task && this.erpAdapter.getDeliveryTaskByOrderId) {
+              try {
+                task = (await this.erpAdapter.getDeliveryTaskByOrderId(ord.orderId)) || undefined;
+              } catch {}
+            }
+
+            if (task && task.status) {
+              deliveryStatus = task.status;
+            } else if (ord.status) {
+              deliveryStatus = ord.status;
+            }
+
+            // Exclude delivered orders: status === "Delivered" -> HIDE FROM CUSTOMER STATUS LIST
+            const isDelivered = deliveryStatus.trim().toLowerCase() === 'delivered' ||
+              ord.status?.trim().toLowerCase() === 'delivered';
+
+            if (!isDelivered) {
+              activeOrders.push({
+                ...ord,
+                deliveryStatus,
+              });
+            }
+          }
+
+          // 6. Show ONLY orders that are still active/not delivered
           if (combinedOrders.length === 0) {
             replyText = `📦 *Track Your Order*
 
@@ -765,70 +884,34 @@ To check a specific order, please send:
 Example: *STATUS SO-2026-581335720*
 
 📸 Send a photo of your prescription slip or reply *ORDER FORMAT* to place your lens order!`;
+          } else if (activeOrders.length === 0) {
+            replyText = `✅ You have no active orders. All your orders have been delivered.`;
           } else {
-            // Cache recent orders in session
-            RecentOrdersSessionService.setRecentOrders(phone, combinedOrders);
+            // Cache active orders in session
+            RecentOrdersSessionService.setRecentOrders(phone, activeOrders);
 
-            let formattedItems = '';
-            if (combinedOrders.length <= 5) {
-              formattedItems = combinedOrders
-                .map((ord, idx) => {
-                  const refStr = ord.customerRefNo ? `• Ref: *${ord.customerRefNo}*\n` : '';
-                  const prodStr = ord.product ? `• Product: *${ord.product}*${ord.coating ? ` (${ord.coating})` : ''}\n` : '';
-                  const stageStr = ord.pendingAt ? ` (${ord.pendingAt})` : '';
-                  const statusStr = ord.status ? `• Status: *${ord.status}*${stageStr}\n` : '';
-                  const dateStr = ord.orderDate ? `• Date: *${ord.orderDate.slice(0, 10)}*\n` : '';
-                  return `${idx + 1}. 📦 *${ord.orderId}*\n${refStr}${prodStr}${statusStr}${dateStr}`.trim();
-                })
-                .join('\n\n');
-            } else {
-              // Compact format showing ALL order IDs cleanly
-              formattedItems = combinedOrders
-                .map((ord, idx) => {
-                  const ref = ord.customerRefNo ? ` — ${ord.customerRefNo}` : '';
-                  const date = ord.orderDate ? ` (${ord.orderDate.slice(5, 10)})` : '';
-                  return `${idx + 1}. *${ord.orderId}*${ref}${date}`;
-                })
-                .join('\n');
-            }
+            const formattedItems = activeOrders
+              .map((ord, idx) => `${idx + 1}. Order ID: ${ord.orderId}\n   Status: ${ord.deliveryStatus}`)
+              .join('\n\n');
 
-            replyText = `📦 *Your Recent Orders* (Total: ${combinedOrders.length})
+            replyText = `📦 *Your Active Orders*\n\n${formattedItems}`;
 
-Select an order below to check live status:
-
-${formattedItems}
-
-👉 *How to check status:*
-• Send the *Order ID* (e.g. *${combinedOrders[0].orderId}*)
-• Reply *1* for Order Format Guide, or *3* for Help!`;
-
-            // If more than 3 orders, use WhatsApp Interactive List (supports up to 10 rows for customer to tap!)
-            if (combinedOrders.length > 3) {
+            if (activeOrders.length > 3) {
               statusInteractiveList = {
                 buttonText: '📋 Select Order',
                 sections: [
                   {
-                    title: 'Your Recent Orders',
-                    rows: combinedOrders.slice(0, 10).map((ord) => {
-                      const desc = [
-                        ord.customerRefNo ? `Ref: ${ord.customerRefNo}` : '',
-                        ord.product || '',
-                        ord.status ? `(${ord.status})` : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' • ');
-                      return {
-                        id: `STATUS:${ord.orderId}`,
-                        title: ord.orderId.slice(0, 24),
-                        description: desc.slice(0, 72) || undefined,
-                      };
-                    }),
+                    title: 'Your Active Orders',
+                    rows: activeOrders.slice(0, 10).map((ord) => ({
+                      id: `STATUS:${ord.orderId}`,
+                      title: ord.orderId.slice(0, 24),
+                      description: `Status: ${ord.deliveryStatus}`.slice(0, 72),
+                    })),
                   },
                 ],
               };
             } else {
-              // 1 to 3 orders: directly display quick-reply buttons
-              statusInteractiveButtons = combinedOrders.slice(0, 3).map((ord) => ({
+              statusInteractiveButtons = activeOrders.slice(0, 3).map((ord) => ({
                 id: `STATUS:${ord.orderId}`,
                 title: ord.orderId.slice(0, 20),
               }));

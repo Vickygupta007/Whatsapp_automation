@@ -83,8 +83,8 @@ export class ClassifierService {
       };
     }
 
-    // Direct Order ID match (e.g. "SO-2026-416713777", "STATUS:SO-2026-416713777")
-    const orderIdMatch = text.match(/\b(SO-\d{4}-[A-Za-z0-9]+)\b/i);
+    // Direct Order ID match (e.g. "SO-101", "SO-2026-416713777", "STATUS:SO-2026-416713777")
+    const orderIdMatch = text.match(/\b(SO-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)\b/i);
 
     // Rule 1: ORDER FORMAT (Menu Option 1)
     // Matches: "1", "1.", "#1", "option 1", "1. order format", "1. 📝 order format", "order format", "order template", "how to order", "format", "guide"

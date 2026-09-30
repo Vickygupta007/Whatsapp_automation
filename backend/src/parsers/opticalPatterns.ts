@@ -41,10 +41,20 @@ export const COATINGS: { pattern: RegExp; normalized: string }[] = [
 
 export const LENS_INDICES = [
   '1.50',
+  '1.53', // Trivex / Phoenix
+  '1.54',
+  '1.55',
   '1.56',
+  '1.57',
+  '1.58',
   '1.59', // Polycarbonate
   '1.60',
   '1.61',
+  '1.66',
   '1.67',
+  '1.70',
   '1.74',
+  '1.76',
+  '1.80',
+  '1.90',
 ];
