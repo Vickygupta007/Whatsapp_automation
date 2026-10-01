@@ -1,0 +1,48 @@
+# Render Blueprint Specification for WhatsApp Rio ERP Automation
+# Deploy both Full Frontend Dashboard & Backend Webhook Server with free SSL domain + Managed PostgreSQL
+services:
+  - type: web
+    name: whatsapp-rio-erp-automation
+    env: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: NGROK_ENABLED
+        value: "false"
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: whatsapp-erp-db
+          property: connectionString
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RIO_ERP_BASE_URL
+        value: "http://200.234.35.179:3000"
+      - key: RIO_ERP_API_KEY
+        value: "rio_whatsapp_secret_key_2026"
+      - key: RIO_ERP_USE_MOCK
+        value: "true"
+      - key: WHATSAPP_USE_MOCK
+        value: "false"
+
+databases:
+  - name: whatsapp-erp-db
+    plan: starter
+    databaseName: whatsapp_rio_erp
+    user: erp_admin
+    region: oregon

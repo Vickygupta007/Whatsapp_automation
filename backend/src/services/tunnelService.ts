@@ -23,8 +23,8 @@ export class TunnelService {
       return null;
     }
 
-    if (!config.NGROK_ENABLED) {
-      logger.info('[TunnelService] Ngrok auto-tunnel is disabled via NGROK_ENABLED=false');
+    if (!config.NGROK_ENABLED || (config.NODE_ENV === 'production' && process.env.NGROK_ENABLED !== 'true')) {
+      logger.info('[TunnelService] Ngrok auto-tunnel is disabled via NGROK_ENABLED=false or production environment');
       return null;
     }
 

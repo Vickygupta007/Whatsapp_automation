@@ -1,6 +1,7 @@
 import { MetaIncomingMessage, MetaWebhookPayload, NormalizedMessage } from '../types/webhook.js';
 import { normalizePhone } from '../utils/phoneNormalizer.js';
 import { config } from '../config/env.js';
+import { StoreRegistry } from '../config/stores.js';
 import { logger } from '../utils/logger.js';
 
 export class NormalizationService {
@@ -34,15 +35,14 @@ export class NormalizationService {
           continue;
         }
 
-        // If a specific active phone number is configured, only accept that active number
-        if (
-          process.env.NODE_ENV !== 'test' &&
-          config.WHATSAPP_PHONE_NUMBER_ID &&
-          targetPhoneId &&
-          targetPhoneId !== config.WHATSAPP_PHONE_NUMBER_ID
-        ) {
+        // Accept message if it belongs to any registered store or the configured active number
+        const isRegisteredNumber =
+          StoreRegistry.isKnownPhoneNumberId(targetPhoneId) ||
+          targetPhoneId === config.WHATSAPP_PHONE_NUMBER_ID;
+
+        if (process.env.NODE_ENV !== 'test' && targetPhoneId && !isRegisteredNumber) {
           logger.info(
-            `[NormalizationService] Ignoring message for non-active phone number ID: ${targetPhoneId} (Active ID: ${config.WHATSAPP_PHONE_NUMBER_ID})`
+            `[NormalizationService] Ignoring message for non-registered phone number ID: ${targetPhoneId}`
           );
           continue;
         }
@@ -58,7 +58,13 @@ export class NormalizationService {
         }
 
         for (const msg of value.messages) {
-          const normalized = this.normalizeSingleMessage(msg, contactMap, payload as unknown as Record<string, unknown>);
+          const normalized = this.normalizeSingleMessage(
+            msg,
+            contactMap,
+            payload as unknown as Record<string, unknown>,
+            targetPhoneId,
+            targetDisplay
+          );
           if (normalized) {
             results.push(normalized);
           }
@@ -75,7 +81,9 @@ export class NormalizationService {
   public static normalizeSingleMessage(
     msg: MetaIncomingMessage,
     contactsMap?: Map<string, string>,
-    rawPayload: Record<string, unknown> = {}
+    rawPayload: Record<string, unknown> = {},
+    recipientPhoneNumberId?: string | null,
+    displayPhoneNumber?: string | null
   ): NormalizedMessage | null {
     if (!msg || !msg.id || !msg.from) {
       return null;
@@ -133,6 +141,8 @@ export class NormalizationService {
       messageType,
       text,
       mediaId,
+      recipientPhoneNumberId: recipientPhoneNumberId || null,
+      displayPhoneNumber: displayPhoneNumber || null,
       rawPayload,
     };
   }

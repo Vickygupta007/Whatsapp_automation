@@ -11,18 +11,30 @@ export interface SentMessageRecord {
   buttons?: Array<{ id: string; title: string }>;
 }
 
+export interface WhatsAppSendOptions {
+  phoneNumberId?: string;
+  accessToken?: string;
+}
+
 export class WhatsAppClient {
   public static sentMessagesLog: SentMessageRecord[] = [];
 
   /**
    * Sends an outgoing WhatsApp text message to the specified recipient phone number.
    */
-  public static async sendMessage(phone: string, text: string): Promise<{ success: boolean; data?: unknown }> {
+  public static async sendMessage(
+    phone: string,
+    text: string,
+    options?: WhatsAppSendOptions
+  ): Promise<{ success: boolean; data?: unknown }> {
     const normalized = normalizePhone(phone);
+    const targetToken = options?.accessToken || config.WHATSAPP_ACCESS_TOKEN;
+    const targetPhoneId = options?.phoneNumberId || config.WHATSAPP_PHONE_NUMBER_ID;
+
     const shouldUseMock =
       config.WHATSAPP_USE_MOCK ||
-      !config.WHATSAPP_ACCESS_TOKEN ||
-      config.WHATSAPP_ACCESS_TOKEN === 'your_whatsapp_permanent_access_token_here' ||
+      !targetToken ||
+      targetToken === 'your_whatsapp_permanent_access_token_here' ||
       process.env.NODE_ENV === 'test';
 
     if (shouldUseMock) {
@@ -62,8 +74,8 @@ export class WhatsAppClient {
     }
 
     try {
-      logger.info(`[WhatsAppClient] Dispatching WhatsApp message to +${normalized}`);
-      const url = `${config.WHATSAPP_API_BASE_URL}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+      logger.info(`[WhatsAppClient] Dispatching WhatsApp message to +${normalized} via PhoneID ${targetPhoneId}`);
+      const url = `${config.WHATSAPP_API_BASE_URL}/${targetPhoneId}/messages`;
 
       const payload = {
         messaging_product: 'whatsapp',
@@ -78,7 +90,7 @@ export class WhatsAppClient {
 
       const response = await axios.post(url, payload, {
         headers: {
-          Authorization: `Bearer ${config.WHATSAPP_ACCESS_TOKEN}`,
+          Authorization: `Bearer ${targetToken}`,
           'Content-Type': 'application/json',
         },
         timeout: 10000,
@@ -121,13 +133,17 @@ export class WhatsAppClient {
     bodyText: string,
     buttons: Array<{ id: string; title: string }>,
     headerText = '👓 Prescription Verification',
-    footerText = 'Rio Digital Lenses'
+    footerText = 'Rio Digital Lenses',
+    options?: WhatsAppSendOptions
   ): Promise<{ success: boolean; data?: unknown }> {
     const normalized = normalizePhone(phone);
+    const targetToken = options?.accessToken || config.WHATSAPP_ACCESS_TOKEN;
+    const targetPhoneId = options?.phoneNumberId || config.WHATSAPP_PHONE_NUMBER_ID;
+
     const shouldUseMock =
       config.WHATSAPP_USE_MOCK ||
-      !config.WHATSAPP_ACCESS_TOKEN ||
-      config.WHATSAPP_ACCESS_TOKEN === 'your_whatsapp_permanent_access_token_here' ||
+      !targetToken ||
+      targetToken === 'your_whatsapp_permanent_access_token_here' ||
       process.env.NODE_ENV === 'test';
 
     if (shouldUseMock) {
@@ -148,8 +164,8 @@ export class WhatsAppClient {
     }
 
     try {
-      logger.info(`[WhatsAppClient] Dispatching WhatsApp interactive buttons to +${normalized}`);
-      const url = `${config.WHATSAPP_API_BASE_URL}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+      logger.info(`[WhatsAppClient] Dispatching WhatsApp interactive buttons to +${normalized} via PhoneID ${targetPhoneId}`);
+      const url = `${config.WHATSAPP_API_BASE_URL}/${targetPhoneId}/messages`;
 
       const payload = {
         messaging_product: 'whatsapp',
@@ -175,7 +191,7 @@ export class WhatsAppClient {
 
       const response = await axios.post(url, payload, {
         headers: {
-          Authorization: `Bearer ${config.WHATSAPP_ACCESS_TOKEN}`,
+          Authorization: `Bearer ${targetToken}`,
           'Content-Type': 'application/json',
         },
         timeout: 10000,
@@ -192,7 +208,7 @@ export class WhatsAppClient {
     } catch (err: unknown) {
       logger.warn(`[WhatsAppClient] Interactive buttons dispatch failed, falling back to standard text: ${String(err)}`);
       const fallbackText = `${bodyText}\n\n👉 Reply *CONFIRM* to place this order, or reply *EDIT* to modify details.`;
-      return this.sendMessage(phone, fallbackText);
+      return this.sendMessage(phone, fallbackText, options);
     }
   }
 
@@ -213,13 +229,17 @@ export class WhatsAppClient {
       }>;
     }>,
     headerText = '📦 Rio Order Tracking',
-    footerText = 'Rio Digital Lenses'
+    footerText = 'Rio Digital Lenses',
+    options?: WhatsAppSendOptions
   ): Promise<{ success: boolean; data?: unknown }> {
     const normalized = normalizePhone(phone);
+    const targetToken = options?.accessToken || config.WHATSAPP_ACCESS_TOKEN;
+    const targetPhoneId = options?.phoneNumberId || config.WHATSAPP_PHONE_NUMBER_ID;
+
     const shouldUseMock =
       config.WHATSAPP_USE_MOCK ||
-      !config.WHATSAPP_ACCESS_TOKEN ||
-      config.WHATSAPP_ACCESS_TOKEN === 'your_whatsapp_permanent_access_token_here' ||
+      !targetToken ||
+      targetToken === 'your_whatsapp_permanent_access_token_here' ||
       process.env.NODE_ENV === 'test';
 
     const allRows = sections.flatMap((s) => s.rows);
@@ -241,8 +261,8 @@ export class WhatsAppClient {
     }
 
     try {
-      logger.info(`[WhatsAppClient] Dispatching WhatsApp interactive list to +${normalized}`);
-      const url = `${config.WHATSAPP_API_BASE_URL}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+      logger.info(`[WhatsAppClient] Dispatching WhatsApp interactive list to +${normalized} via PhoneID ${targetPhoneId}`);
+      const url = `${config.WHATSAPP_API_BASE_URL}/${targetPhoneId}/messages`;
 
       const payload = {
         messaging_product: 'whatsapp',
@@ -270,7 +290,7 @@ export class WhatsAppClient {
 
       const response = await axios.post(url, payload, {
         headers: {
-          Authorization: `Bearer ${config.WHATSAPP_ACCESS_TOKEN}`,
+          Authorization: `Bearer ${targetToken}`,
           'Content-Type': 'application/json',
         },
         timeout: 10000,
@@ -286,7 +306,7 @@ export class WhatsAppClient {
       return { success: true, data: response.data };
     } catch (err: unknown) {
       logger.warn(`[WhatsAppClient] Interactive list dispatch failed, falling back to standard text: ${String(err)}`);
-      return this.sendMessage(phone, bodyText);
+      return this.sendMessage(phone, bodyText, options);
     }
   }
 

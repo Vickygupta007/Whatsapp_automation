@@ -1,7 +1,8 @@
 import { AppRepository, StoredOrder } from '../database/repository.js';
-import { RioErpAdapter } from '../integrations/rio-erp/adapter.js';
+import { ErpAdapterFactory, RioErpAdapter } from '../integrations/rio-erp/adapter.js';
 import { RioErpMapper } from '../integrations/rio-erp/mappers.js';
 import { WhatsAppClient } from '../integrations/whatsapp/client.js';
+import { StoreRegistry } from '../config/stores.js';
 import { OrderParser } from '../parsers/orderParser.js';
 import { ClassifierService } from './classifierService.js';
 import { ImageOcrService } from './imageOcrService.js';
@@ -15,9 +16,11 @@ import { RecentOrdersSessionService } from './recentOrdersSessionService.js';
 
 export class WorkflowService {
   private erpAdapter: IRioErpClient;
+  private hasCustomClient: boolean;
 
   constructor(customErpClient?: IRioErpClient) {
     this.erpAdapter = customErpClient || new RioErpAdapter();
+    this.hasCustomClient = !!customErpClient;
   }
 
   /**
@@ -42,6 +45,13 @@ export class WorkflowService {
     const { messageId, phone, customerName, text, messageType, rawPayload } = msg;
 
     logger.info(`[WorkflowService] Processing auto-reply workflow for messageId: ${messageId} (Phone: ${phone})`);
+
+    const store = StoreRegistry.getStoreByPhoneNumberId(msg.recipientPhoneNumberId);
+    const activeErp = this.hasCustomClient ? this.erpAdapter : ErpAdapterFactory.getAdapterForStore(store.id);
+    const waOptions = {
+      phoneNumberId: store.whatsappPhoneNumberId,
+      accessToken: store.whatsappAccessToken,
+    };
 
     const logStep = async (
       step: StepLogRecord['step'],
@@ -122,14 +132,14 @@ export class WorkflowService {
       let party: any;
 
       try {
-        const customerLookup = await this.erpAdapter.findCustomerByPhone(phone);
+        const customerLookup = await activeErp.findCustomerByPhone(phone);
         if (customerLookup.found && (customerLookup.party || customerLookup.customer)) {
           isCustomerRegistered = true;
           customerId = customerLookup.party?.accountId || customerLookup.customer?.id;
           party = customerLookup.party || {
             accountId: customerLookup.customer?.accountId || customerLookup.customer?.id || 'ACC',
             name: customerLookup.customer?.name || customerName || 'Registered Customer',
-            labName: customerLookup.customer?.labName || 'Rio Central Lab',
+            labName: customerLookup.customer?.labName || `${store.name} Lab`,
           };
           await logStep('CUSTOMER_LOOKUP', 'SUCCESS', {
             phone,
@@ -432,7 +442,7 @@ Please verify your order details:${orderInfoSection}${extraSpecsSection}
           const erpOrderReq = RioErpMapper.toErpOrderRequest(pendingDraft.order, pendingDraft.party || party);
 
           try {
-            const erpResponse = await this.erpAdapter.createOrder(erpOrderReq);
+            const erpResponse = await activeErp.createOrder(erpOrderReq);
             erpOrderId = erpResponse.orderId;
 
             const dbOrder = await AppRepository.createOrder({
@@ -474,7 +484,7 @@ Please verify your order details:${orderInfoSection}${extraSpecsSection}
 
             const accountName = erpResponse.party?.name || pendingDraft.party?.name || party?.name || 'Customer';
             const accountId = erpResponse.party?.accountId || pendingDraft.party?.accountId || party?.accountId || '100023';
-            const labName = erpResponse.party?.labName || pendingDraft.party?.labName || party?.labName || 'RIO-AHMEDABAD';
+            const labName = erpResponse.party?.labName || pendingDraft.party?.labName || party?.labName || `${store.name}-LAB`;
             const displayProduct = erpOrderReq.product || pendingDraft.order.product || '';
             const displayCoating = erpOrderReq.coating || pendingDraft.order.coating || '';
             const displayRef = erpOrderReq.customerRefNo || pendingDraft.order.customerRefNo || erpResponse.orderRef || '';
@@ -492,25 +502,28 @@ Please verify your order details:${orderInfoSection}${extraSpecsSection}
               pendingDraft.order.remarks ? `• Remark: *${pendingDraft.order.remarks}*` : '',
             ].filter(Boolean).join('\n');
 
+            const storeDisplayName = store.id === 'rio' ? 'Rio' : store.name;
+            const lensesHeader = store.id === 'rio' ? 'Rio Digital Lenses' : `${store.name} Lenses`;
+
             replyText = `✅ *ORDER CONFIRMED*
 
-👓 *Rio Digital Lenses*
+👓 *${lensesHeader}*
 Order ID: *${erpResponse.orderId}*
 
 📋 *Order Details:*
 ${refDetailLine}${productDetailLine}${typeDetailLine}${indexDetailLine}${coatingDetailLine}• Account: *${accountName}* (${accountId})
 • Lab: *${labName}*${extraLines ? '\n' + extraLines : ''}
 
-🏭 Your order has been placed in Rio ERP. Lab technicians are now preparing your lenses.
+🏭 Your order has been placed in ${storeDisplayName} ERP. Lab technicians are now preparing your lenses.
 
 💬 Reply *STATUS* anytime for live progress!`;
 
             finalStatus = 'CONFIRMATION_SENT';
           } catch (erpErr: unknown) {
             const erpErrMsg = erpErr instanceof Error ? erpErr.message : String(erpErr);
-            logger.error(`[WorkflowService] Rio ERP order confirmation failed for ${phone}: ${erpErrMsg}`);
+            logger.error(`[WorkflowService] ERP order confirmation failed for ${phone}: ${erpErrMsg}`);
             await logStep('ORDER_CREATION', 'FAILED', { phone, error: erpErrMsg }, 'ErpOrderError', erpErrMsg);
-            replyText = `⚠️ We encountered an issue punching your confirmed order in Rio ERP. Our lab coordinator has been notified.`;
+            replyText = `⚠️ We encountered an issue punching your confirmed order in ${store.name} ERP. Our lab coordinator has been notified.`;
           }
         } else {
           replyText = `ℹ️ *No Active Order Found*
@@ -582,7 +595,7 @@ Remark: __
 
         if (targetOrderId) {
           try {
-            const statusResult = await this.erpAdapter.getOrderStatus(targetOrderId);
+            const statusResult = await activeErp.getOrderStatus(targetOrderId);
             await logStep('REPLY_SELECTION', 'SUCCESS', {
               action: 'ORDER_STATUS_LOOKUP',
               orderId: targetOrderId,
@@ -615,9 +628,9 @@ Remark: __
             if (statusResult.success && ord && belongsToCustomer) {
               // Read CURRENT delivery status from the existing delivery system
               let deliveryTask: DeliveryTaskData | null = null;
-              if (this.erpAdapter.getDeliveryTaskByOrderId) {
+              if (activeErp.getDeliveryTaskByOrderId) {
                 try {
-                  deliveryTask = await this.erpAdapter.getDeliveryTaskByOrderId(targetOrderId);
+                  deliveryTask = await activeErp.getDeliveryTaskByOrderId(targetOrderId);
                 } catch (taskErr: unknown) {
                   logger.warn(`[WorkflowService] DeliveryTask lookup failed for ${targetOrderId}: ${String(taskErr)}`);
                 }
@@ -641,7 +654,7 @@ Remark: __
               }
 
               const formattedDate = ord.orderDate ? ord.orderDate.replace('T', ' ') : 'Today';
-              const lab = ord.labLocation || party?.labName || 'RIO-AHMEDABAD';
+              const lab = ord.labLocation || party?.labName || `${store.name}-LAB`;
               const cust = ord.customer || party?.name || 'Customer';
               const prod = ord.product || localDbOrder?.product || '';
               const lens = (ord.lensType || localDbOrder?.lensType) ? ` (${ord.lensType || localDbOrder?.lensType})` : '';
@@ -668,9 +681,9 @@ Remark: __
 💬 Reply *STATUS* anytime to see all your orders!`;
             } else if (localDbOrder && cleanDbPhone && cleanDbPhone === cleanCustomerPhone) {
               let deliveryTask: DeliveryTaskData | null = null;
-              if (this.erpAdapter.getDeliveryTaskByOrderId) {
+              if (activeErp.getDeliveryTaskByOrderId) {
                 try {
-                  deliveryTask = await this.erpAdapter.getDeliveryTaskByOrderId(targetOrderId);
+                  deliveryTask = await activeErp.getDeliveryTaskByOrderId(targetOrderId);
                 } catch {}
               }
               const currentStatus = deliveryTask?.status || localDbOrder.status || 'In Progress';
@@ -687,7 +700,7 @@ Remark: __
 📋 *Details:*
 • Ref: *${localDbOrder.customerRefNo || 'N/A'}*
 • Product: *${localDbOrder.product || ''}*${lens}${realCoating}
-• Lab: *${party?.labName || 'RIO-AHMEDABAD'}*
+• Lab: *${party?.labName || `${store.name}-LAB`}*
 • Account: *${party?.name || 'Customer'}*
 • Date: *${formattedDate}*
 
@@ -703,9 +716,9 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
             }
           } catch (statusErr: unknown) {
             const errMsg = statusErr instanceof Error ? statusErr.message : String(statusErr);
-            logger.error(`[WorkflowService] Rio ERP order status check failed for ${targetOrderId}: ${errMsg}`);
+            logger.error(`[WorkflowService] ERP order status check failed for ${targetOrderId}: ${errMsg}`);
             await logStep('REPLY_SELECTION', 'FAILED', { orderId: targetOrderId, error: errMsg }, 'ErpStatusError', errMsg);
-            replyText = `⚠️ We are currently unable to fetch live status from Rio ERP for order *${targetOrderId}*. Our team is checking on it. Please try again shortly or reply *HELP*.`;
+            replyText = `⚠️ We are currently unable to fetch live status from ${store.name} ERP for order *${targetOrderId}*. Our team is checking on it. Please try again shortly or reply *HELP*.`;
           }
         } else {
           // Customer asked for STATUS without an order ID: Fetch and show active non-delivered orders for this customer
@@ -721,10 +734,10 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
             orderDate?: string | null;
           }> = [];
 
-          // 1. Fetch from Rio ERP live orders API and filter STRICTLY for this specific customer
-          if (this.erpAdapter.getOrdersByPhone) {
+          // 1. Fetch from live orders API and filter STRICTLY for this specific customer
+          if (activeErp.getOrdersByPhone) {
             try {
-              const erpOrdersRes = await this.erpAdapter.getOrdersByPhone(phone);
+              const erpOrdersRes = await activeErp.getOrdersByPhone(phone);
               if (erpOrdersRes.success && Array.isArray(erpOrdersRes.orders)) {
                 const cleanCustomerPhone = phone.replace(/\D/g, '').slice(-10);
                 const partyId = party?.id;
@@ -813,9 +826,9 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
 
           // 3. Find corresponding DeliveryTask for each order using existing delivery system
           const deliveryTaskMap = new Map<string, DeliveryTaskData>();
-          if (this.erpAdapter.getDeliveryTasks) {
+          if (activeErp.getDeliveryTasks) {
             try {
-              const tasks = await this.erpAdapter.getDeliveryTasks();
+              const tasks = await activeErp.getDeliveryTasks();
               for (const t of tasks) {
                 if (t.invoiceNo) {
                   deliveryTaskMap.set(t.invoiceNo.trim().toUpperCase(), t);
@@ -849,9 +862,9 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
             let task = deliveryTaskMap.get(ord.orderId.trim().toUpperCase()) ||
               (ord.customerRefNo ? deliveryTaskMap.get(ord.customerRefNo.trim().toUpperCase()) : undefined);
 
-            if (!task && this.erpAdapter.getDeliveryTaskByOrderId) {
+            if (!task && activeErp.getDeliveryTaskByOrderId) {
               try {
-                task = (await this.erpAdapter.getDeliveryTaskByOrderId(ord.orderId)) || undefined;
+                task = (await activeErp.getDeliveryTaskByOrderId(ord.orderId)) || undefined;
               } catch {}
             }
 
@@ -943,7 +956,8 @@ Example: *STATUS SO-2026-581335720*
             classification.category === 'IMAGE_ORDER_VERIFICATION'
               ? '👓 Prescription Verification'
               : '👓 Order Verification',
-            'Tap button or reply CONFIRM / EDIT'
+            'Tap button or reply CONFIRM / EDIT',
+            waOptions
           );
         } else if (statusInteractiveList && replyText.length <= 1000) {
           await WhatsAppClient.sendInteractiveList(
@@ -951,19 +965,21 @@ Example: *STATUS SO-2026-581335720*
             replyText,
             statusInteractiveList.buttonText,
             statusInteractiveList.sections,
-            '📦 Rio Order Tracking',
-            'Tap Select Order or send Order ID'
+            `📦 ${store.name} Tracking`,
+            'Tap Select Order or send Order ID',
+            waOptions
           );
         } else if (statusInteractiveButtons && statusInteractiveButtons.length > 0 && replyText.length <= 1000) {
           await WhatsAppClient.sendInteractiveButtons(
             phone,
             replyText,
             statusInteractiveButtons,
-            '📦 Rio Order Tracking',
-            'Tap order button or send Order ID'
+            `📦 ${store.name} Tracking`,
+            'Tap order button or send Order ID',
+            waOptions
           );
         } else {
-          await WhatsAppClient.sendMessage(phone, replyText);
+          await WhatsAppClient.sendMessage(phone, replyText, waOptions);
         }
         await AppRepository.updateMessageReply(messageId, {
           replyStatus: 'SENT',

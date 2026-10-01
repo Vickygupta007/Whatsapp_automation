@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import cors from 'cors';
 import express, { Application, Request, Response } from 'express';
 import { config } from './config/env.js';
@@ -17,10 +19,52 @@ export function createApp(): Application {
   app.use(express.urlencoded({ extended: true }));
   app.use(requestLogger);
 
-  // Root endpoint: friendly landing page explaining the backend service with direct link to frontend dashboard
-  app.get('/', (req: Request, res: Response) => {
-    if (req.accepts('html')) {
-      res.send(`
+  // Healthcheck endpoint
+  app.get('/health', (_req: Request, res: Response) => {
+    res.json({
+      status: 'ok',
+      service: 'whatsapp-rio-erp-automation',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      databaseConnected: isConnectedToDatabase(),
+      rioErpMock: config.RIO_ERP_USE_MOCK,
+      whatsappMock: config.WHATSAPP_USE_MOCK,
+      tunnelUrl: TunnelService.getPublicUrl(),
+    });
+  });
+
+  // Meta Webhook routes at root (GET/POST /whatsapp-cloud-inbound)
+  app.use('/', webhookRoutes);
+
+  // Admin and execution visualizer routes
+  app.use('/api/admin', adminRoutes);
+
+  // Check for built frontend assets (production mode)
+  const candidateFrontendPaths = [
+    path.resolve(process.cwd(), 'frontend/dist'),
+    path.resolve(process.cwd(), '../frontend/dist'),
+    path.resolve(process.cwd(), 'dist/frontend'),
+  ];
+  const frontendDist = candidateFrontendPaths.find((p) => fs.existsSync(p));
+
+  if (frontendDist) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req: Request, res: Response, next) => {
+      // Don't intercept API, webhook, or health routes
+      if (
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/whatsapp-cloud-inbound') ||
+        req.path.startsWith('/health')
+      ) {
+        return next();
+      }
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+  } else {
+    // Root fallback endpoint for development when frontend is run separately (e.g. Vite on 5173)
+    app.get('/', (req: Request, res: Response) => {
+      if (req.accepts('html')) {
+        res.send(`
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -89,44 +133,25 @@ export function createApp(): Application {
   </div>
 </body>
 </html>
-      `);
-      return;
-    }
+        `);
+        return;
+      }
 
-    res.json({
-      service: 'whatsapp-rio-erp-automation',
-      status: 'active',
-      port: config.PORT,
-      frontendUrl: 'http://localhost:5173',
-      endpoints: {
-        webhook: '/whatsapp-cloud-inbound',
-        health: '/health',
-        metrics: '/api/admin/metrics',
-        messages: '/api/admin/messages',
-        orders: '/api/admin/orders',
-      },
+      res.json({
+        service: 'whatsapp-rio-erp-automation',
+        status: 'active',
+        port: config.PORT,
+        frontendUrl: 'http://localhost:5173',
+        endpoints: {
+          webhook: '/whatsapp-cloud-inbound',
+          health: '/health',
+          metrics: '/api/admin/metrics',
+          messages: '/api/admin/messages',
+          orders: '/api/admin/orders',
+        },
+      });
     });
-  });
-
-  // Healthcheck endpoint
-  app.get('/health', (_req: Request, res: Response) => {
-    res.json({
-      status: 'ok',
-      service: 'whatsapp-rio-erp-automation',
-      uptime: process.uptime(),
-      timestamp: new Date().toISOString(),
-      databaseConnected: isConnectedToDatabase(),
-      rioErpMock: config.RIO_ERP_USE_MOCK,
-      whatsappMock: config.WHATSAPP_USE_MOCK,
-      tunnelUrl: TunnelService.getPublicUrl(),
-    });
-  });
-
-  // Meta Webhook routes at root (GET/POST /whatsapp-cloud-inbound)
-  app.use('/', webhookRoutes);
-
-  // Admin and execution visualizer routes
-  app.use('/api/admin', adminRoutes);
+  }
 
   // Global Error Handler
   app.use(errorHandler);

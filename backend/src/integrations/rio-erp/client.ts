@@ -5,27 +5,35 @@ import { logger } from '../../utils/logger.js';
 import { normalizePhone } from '../../utils/phoneNormalizer.js';
 import { RioErpMapper } from './mappers.js';
 
+import { StoreErpConfig } from '../../config/stores.js';
+
 export class LiveRioErpClient implements IRioErpClient {
   private http: AxiosInstance;
 
-  constructor() {
+  constructor(customConfig?: StoreErpConfig) {
+    const authType = customConfig?.authType || config.RIO_ERP_AUTH_TYPE;
+    const apiKey = customConfig?.apiKey || config.RIO_ERP_API_KEY;
+    const username = customConfig?.username || config.RIO_ERP_USERNAME;
+    const password = customConfig?.password || config.RIO_ERP_PASSWORD;
+    const baseUrl = customConfig?.baseUrl || config.RIO_ERP_BASE_URL;
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     };
 
-    if (config.RIO_ERP_AUTH_TYPE === 'api-key' && config.RIO_ERP_API_KEY) {
-      headers['x-api-key'] = config.RIO_ERP_API_KEY;
-      headers['X-API-KEY'] = config.RIO_ERP_API_KEY;
-    } else if (config.RIO_ERP_AUTH_TYPE === 'bearer' && config.RIO_ERP_API_KEY) {
-      headers['Authorization'] = `Bearer ${config.RIO_ERP_API_KEY}`;
-    } else if (config.RIO_ERP_AUTH_TYPE === 'basic' && config.RIO_ERP_USERNAME) {
-      const token = Buffer.from(`${config.RIO_ERP_USERNAME}:${config.RIO_ERP_PASSWORD}`).toString('base64');
+    if (authType === 'api-key' && apiKey) {
+      headers['x-api-key'] = apiKey;
+      headers['X-API-KEY'] = apiKey;
+    } else if (authType === 'bearer' && apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (authType === 'basic' && username) {
+      const token = Buffer.from(`${username}:${password}`).toString('base64');
       headers['Authorization'] = `Basic ${token}`;
     }
 
     this.http = axios.create({
-      baseURL: config.RIO_ERP_BASE_URL,
+      baseURL: baseUrl,
       timeout: 10000,
       headers,
     });

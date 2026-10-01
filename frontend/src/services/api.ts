@@ -1,6 +1,7 @@
 import { AdminMetrics, MessageDetailsResponse, ProcessingStatus, SimulationResult, StoredMessage, StoredOrder } from '../types';
 
-const API_BASE = '/api/admin';
+const BACKEND_BASE = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
+const API_BASE = `${BACKEND_BASE}/api/admin`;
 
 export const api = {
   async getMetrics(): Promise<AdminMetrics> {
@@ -67,7 +68,7 @@ export const api = {
   },
 
   async getHealth(): Promise<Record<string, unknown>> {
-    const res = await fetch('/health');
+    const res = await fetch(`${BACKEND_BASE}/health`);
     if (!res.ok) throw new Error('Health check failed');
     return res.json();
   },

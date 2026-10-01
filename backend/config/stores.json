@@ -1,0 +1,18 @@
+[
+  {
+    "id": "site2_friend",
+    "name": "Friend Optical Store",
+    "whatsappPhoneNumberId": "PASTE_FRIEND_PHONE_NUMBER_ID_HERE",
+    "whatsappDisplayPhone": "+91XXXXXXXXXX",
+    "whatsappAccessToken": "PASTE_FRIEND_WHATSAPP_TOKEN_IF_DIFFERENT",
+    "erp": {
+      "type": "rio-erp",
+      "baseUrl": "https://api.friendwebsite.com",
+      "apiKey": "PASTE_FRIEND_API_KEY_HERE",
+      "authType": "api-key",
+      "username": "",
+      "password": "",
+      "useMock": false
+    }
+  }
+]

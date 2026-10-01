@@ -84,5 +84,7 @@ export interface NormalizedMessage {
   messageType: string;
   text: string | null;
   mediaId: string | null;
+  recipientPhoneNumberId?: string | null;
+  displayPhoneNumber?: string | null;
   rawPayload: Record<string, unknown>;
 }

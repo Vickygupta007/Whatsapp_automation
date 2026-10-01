@@ -145,5 +145,58 @@ describe('Meta WhatsApp Webhook Verification and Ingestion', () => {
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('EVENT_RECEIVED');
     });
+
+    it('should extract recipientPhoneNumberId and recognize registered store phone numbers', async () => {
+      const { StoreRegistry } = await import('../src/config/stores.js');
+      StoreRegistry.registerStore({
+        id: 'friend_store',
+        name: 'Friend Optical',
+        whatsappPhoneNumberId: '9988776655443322',
+        erp: {
+          type: 'mock',
+          useMock: true,
+        },
+      });
+
+      const { NormalizationService } = await import('../src/services/normalizationService.js');
+      const payload: any = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: '123456789',
+            changes: [
+              {
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: {
+                    display_phone_number: '919988776655',
+                    phone_number_id: '9988776655443322',
+                  },
+                  messages: [
+                    {
+                      from: '919876543210',
+                      id: 'wamid.MULTI_STORE_TEST',
+                      timestamp: '1710000000',
+                      type: 'text',
+                      text: { body: 'R: -1.00 Index: 1.56' },
+                    },
+                  ],
+                },
+                field: 'messages',
+              },
+            ],
+          },
+        ],
+      };
+
+      const normalized = NormalizationService.extractAndNormalize(payload);
+      expect(normalized).toHaveLength(1);
+      expect(normalized[0].recipientPhoneNumberId).toBe('9988776655443322');
+      expect(normalized[0].displayPhoneNumber).toBe('919988776655');
+
+      const store = StoreRegistry.getStoreByPhoneNumberId(normalized[0].recipientPhoneNumberId);
+      expect(store.id).toBe('friend_store');
+      expect(store.name).toBe('Friend Optical');
+    });
   });
 });
