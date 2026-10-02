@@ -70,7 +70,7 @@ export function createApp(): Application {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rio ERP WhatsApp Automation - Backend Active</title>
+  <title>WhatsApp Auto-Reply - Backend Active</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
     body { background: #020617; color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -95,7 +95,7 @@ export function createApp(): Application {
       <div class="pulse"></div>
       Backend API Server Online (Port 3000)
     </div>
-    <h1>Rio ERP WhatsApp Order Automation</h1>
+    <h1>WhatsApp Auto-Reply</h1>
     <p>The backend webhook engine and API services are running normally. To view the admin monitoring dashboard, inspect execution flows, or run the live message simulator, click the button below:</p>
     
     <a href="http://localhost:5173" class="btn" target="_blank">
@@ -138,7 +138,7 @@ export function createApp(): Application {
       }
 
       res.json({
-        service: 'whatsapp-rio-erp-automation',
+        service: 'whatsapp-auto-reply',
         status: 'active',
         port: config.PORT,
         frontendUrl: 'http://localhost:5173',

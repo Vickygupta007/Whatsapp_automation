@@ -194,7 +194,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   };
 
   const getWebsiteBadge = (website?: string | null) => {
-    const name = website || 'Rio Digital Lenses';
+    const name = website || 'Store / Website';
     const isRio = name.toLowerCase().includes('rio');
     return (
       <span
@@ -221,7 +221,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               <span>WhatsApp Auto-Reply Engine Active</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-              WhatsApp Auto-Reply System
+              WhatsApp Auto-Reply
             </h1>
             <p className="text-sm text-slate-400 leading-relaxed">
               Deterministic, rule-based automatic reply pipeline for customer WhatsApp inquiries.

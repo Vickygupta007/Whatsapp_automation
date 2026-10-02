@@ -109,7 +109,7 @@ export function App() {
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-slate-950 py-6 text-center text-xs text-slate-500">
         <p>
-          Rio ERP WhatsApp Automation Engine • Meta Cloud API Webhook Bridge • Deterministic Optical Parser
+          WhatsApp Auto-Reply Engine • Meta Cloud API Webhook Bridge • Multi-Website Support
         </p>
       </footer>
 

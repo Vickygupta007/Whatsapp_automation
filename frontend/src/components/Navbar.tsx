@@ -18,9 +18,9 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="text-base font-bold tracking-tight text-white">Rio Digital Lenses</span>
+              <span className="text-base font-bold tracking-tight text-white">WhatsApp Auto-Reply</span>
               <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
-                WhatsApp Auto-Reply
+                Multi-Website Hub
               </span>
             </div>
             <p className="text-xs text-slate-400">Meta Cloud Webhook & Auto-Reply Engine</p>

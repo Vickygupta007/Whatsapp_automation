@@ -33,9 +33,9 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
       {/* Header & Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Rio ERP Optical Orders</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-white">Customer Orders</h1>
           <p className="text-xs text-slate-400">
-            Work orders successfully generated and dispatched into Rio ERP from WhatsApp prescriptions
+            Work orders successfully generated and processed from WhatsApp messages
           </p>
         </div>
 
@@ -74,7 +74,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold bg-slate-900/40">
                   <th className="py-3.5 pl-4">Created</th>
-                  <th className="py-3.5">Rio ERP Order ID</th>
+                  <th className="py-3.5">Order ID</th>
                   <th className="py-3.5">Customer / Ref</th>
                   <th className="py-3.5">Phone</th>
                   <th className="py-3.5">Product</th>

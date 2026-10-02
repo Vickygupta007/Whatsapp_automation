@@ -38,13 +38,13 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
   const availableWebsites = Array.from(
     new Set(
       messages
-        .map((m) => m.website || (m.rawPayload as Record<string, unknown>)?.storeName as string || 'Rio Digital Lenses')
+        .map((m) => m.website || (m.rawPayload as Record<string, unknown>)?.storeName as string || 'Store / Website')
         .filter(Boolean)
     )
   );
 
   const filteredMessages = messages.filter((msg) => {
-    const msgWebsite = msg.website || ((msg.rawPayload as Record<string, unknown>)?.storeName as string) || 'Rio Digital Lenses';
+    const msgWebsite = msg.website || ((msg.rawPayload as Record<string, unknown>)?.storeName as string) || 'Store / Website';
 
     const matchesSearch =
       msg.phone.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -105,7 +105,7 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
   };
 
   const getWebsiteBadge = (website?: string | null) => {
-    const name = website || 'Rio Digital Lenses';
+    const name = website || 'Store / Website';
     const isRio = name.toLowerCase().includes('rio');
     return (
       <span
