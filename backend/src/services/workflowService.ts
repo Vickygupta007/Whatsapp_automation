@@ -105,7 +105,13 @@ export class WorkflowService {
       messageType,
       textContent: text,
       mediaId: msg.mediaId,
-      rawPayload,
+      rawPayload: {
+        ...(typeof rawPayload === 'object' && rawPayload !== null ? rawPayload : {}),
+        storeId: store.id,
+        storeName: store.name,
+        recipientPhoneNumberId: msg.recipientPhoneNumberId,
+        displayPhoneNumber: msg.displayPhoneNumber,
+      },
       status: 'RECEIVED',
     });
 

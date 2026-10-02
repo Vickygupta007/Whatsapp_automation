@@ -8,6 +8,7 @@ import {
   Copy,
   FileCode,
   Filter,
+  Globe,
   MessageSquare,
   Send,
   Sparkles,
@@ -190,6 +191,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </span>
         );
     }
+  };
+
+  const getWebsiteBadge = (website?: string | null) => {
+    const name = website || 'Rio Digital Lenses';
+    const isRio = name.toLowerCase().includes('rio');
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border whitespace-nowrap ${
+          isRio
+            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+            : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+        }`}
+      >
+        <Globe className="h-3 w-3 shrink-0" />
+        <span>{name}</span>
+      </span>
+    );
   };
 
   return (
@@ -479,14 +497,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold">
-                  <th className="pb-3 pl-2">Phone Number</th>
-                  <th className="pb-3">Customer Name</th>
-                  <th className="pb-3 max-w-xs">Incoming Message</th>
-                  <th className="pb-3">Detected Category</th>
-                  <th className="pb-3 max-w-sm">Automatic Reply</th>
-                  <th className="pb-3">Status</th>
-                  <th className="pb-3">Timestamp</th>
-                  <th className="pb-3 pr-2 text-right">Action</th>
+                  <th className="pb-3 pl-2">Time</th>
+                  <th className="pb-3 px-2">Website</th>
+                  <th className="pb-3 px-2">Phone Number</th>
+                  <th className="pb-3 px-2">Customer Name</th>
+                  <th className="pb-3 px-2 max-w-xs">Incoming Message</th>
+                  <th className="pb-3 px-2">Detected Category</th>
+                  <th className="pb-3 px-2 max-w-sm">Automatic Reply</th>
+                  <th className="pb-3 pr-2">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -496,28 +514,41 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     onClick={() => onSelectMessage(msg.messageId)}
                     className="hover:bg-slate-800/40 cursor-pointer transition-colors group"
                   >
+                    {/* Timestamp */}
+                    <td className="py-3.5 pl-2 text-slate-400 font-mono whitespace-nowrap">
+                      <span className="flex items-center space-x-1">
+                        <Clock className="h-3 w-3 text-slate-500" />
+                        <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </span>
+                    </td>
+
+                    {/* Website */}
+                    <td className="py-3.5 px-2 whitespace-nowrap">
+                      {getWebsiteBadge(msg.website || ((msg.rawPayload as Record<string, unknown>)?.storeName as string))}
+                    </td>
+
                     {/* Customer Phone Number */}
-                    <td className="py-3.5 pl-2 font-mono text-slate-200 font-semibold whitespace-nowrap">
+                    <td className="py-3.5 px-2 font-mono text-slate-200 font-semibold whitespace-nowrap">
                       +{msg.phone}
                     </td>
 
                     {/* Customer Name */}
-                    <td className="py-3.5 text-slate-300 whitespace-nowrap">
+                    <td className="py-3.5 px-2 text-slate-300 whitespace-nowrap font-medium">
                       {msg.customerName || 'Customer'}
                     </td>
 
                     {/* Incoming Message */}
-                    <td className="py-3.5 max-w-[200px] truncate text-slate-200 font-mono" title={msg.textContent || ''}>
+                    <td className="py-3.5 px-2 max-w-[200px] truncate text-slate-200 font-mono" title={msg.textContent || ''}>
                       {msg.textContent || `[Media: ${msg.messageType}]`}
                     </td>
 
                     {/* Detected Message Category */}
-                    <td className="py-3.5 whitespace-nowrap">
+                    <td className="py-3.5 px-2 whitespace-nowrap">
                       {getCategoryBadge(msg.category)}
                     </td>
 
                     {/* Automatic Reply */}
-                    <td className="py-3.5 max-w-[260px] truncate text-slate-400 font-mono" title={msg.replyText || ''}>
+                    <td className="py-3.5 px-2 max-w-[260px] truncate text-slate-400 font-mono" title={msg.replyText || ''}>
                       {msg.replyText ? (
                         <span>{msg.replyText.replace(/\n+/g, ' ')}</span>
                       ) : (
@@ -526,23 +557,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     </td>
 
                     {/* Processing Status */}
-                    <td className="py-3.5 whitespace-nowrap">
+                    <td className="py-3.5 pr-2 whitespace-nowrap">
                       {getStatusBadge(msg.status)}
-                    </td>
-
-                    {/* Timestamp */}
-                    <td className="py-3.5 text-slate-400 font-mono whitespace-nowrap">
-                      <span className="flex items-center space-x-1">
-                        <Clock className="h-3 w-3 text-slate-500" />
-                        <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </span>
-                    </td>
-
-                    {/* Action */}
-                    <td className="py-3.5 pr-2 text-right whitespace-nowrap">
-                      <span className="text-emerald-400 font-medium group-hover:underline">
-                        Inspect Flow →
-                      </span>
                     </td>
                   </tr>
                 ))}

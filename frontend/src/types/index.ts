@@ -68,6 +68,7 @@ export interface StoredMessage {
   replyStatus?: string | null;
   status: ProcessingStatus;
   rawPayload: Record<string, unknown>;
+  website?: string | null;
   createdAt: string;
   updatedAt: string;
 }

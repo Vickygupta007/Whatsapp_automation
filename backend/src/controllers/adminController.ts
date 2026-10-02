@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { AppRepository } from '../database/repository.js';
 import { WorkflowService } from '../services/workflowService.js';
+import { StoreRegistry } from '../config/stores.js';
 import { ProcessingStatus } from '../types/pipeline.js';
 import { NormalizedMessage } from '../types/webhook.js';
 import { logger } from '../utils/logger.js';
@@ -33,7 +34,27 @@ export class AdminController {
       const category = req.query.category as string | undefined;
 
       const result = await AppRepository.getMessages(limit, offset, status, category);
-      res.json(result);
+
+      // Enrich each message item with its originating website/store name
+      const enrichedItems = result.items.map((item) => {
+        const payload = item.rawPayload as Record<string, unknown> | undefined;
+        let website = (payload?.storeName as string) || '';
+        if (!website) {
+          const recipientId =
+            (payload?.recipientPhoneNumberId as string) ||
+            ((payload as any)?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id as string);
+          website = StoreRegistry.getStoreByPhoneNumberId(recipientId)?.name || 'Rio Digital Lenses';
+        }
+        return {
+          ...item,
+          website,
+        };
+      });
+
+      res.json({
+        ...result,
+        items: enrichedItems,
+      });
     } catch (err: unknown) {
       logger.error(`[AdminController] Error fetching messages: ${String(err)}`);
       res.status(500).json({ error: 'Failed to fetch messages' });

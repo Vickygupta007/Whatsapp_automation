@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, Filter, MessageSquare, RefreshCw, Search } from 'lucide-react';
+import { Clock, Filter, Globe, MessageSquare, RefreshCw, Search } from 'lucide-react';
 import { ProcessingStatus, StoredMessage } from '../types';
 
 interface MessagesPageProps {
@@ -32,20 +32,34 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedWebsite, setSelectedWebsite] = useState<string>('');
+
+  // Extract all distinct website / store names present in the messages
+  const availableWebsites = Array.from(
+    new Set(
+      messages
+        .map((m) => m.website || (m.rawPayload as Record<string, unknown>)?.storeName as string || 'Rio Digital Lenses')
+        .filter(Boolean)
+    )
+  );
 
   const filteredMessages = messages.filter((msg) => {
+    const msgWebsite = msg.website || ((msg.rawPayload as Record<string, unknown>)?.storeName as string) || 'Rio Digital Lenses';
+
     const matchesSearch =
       msg.phone.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (msg.textContent && msg.textContent.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (msg.customerName && msg.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (msg.category && msg.category.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (msg.replyText && msg.replyText.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      msgWebsite.toLowerCase().includes(searchTerm.toLowerCase()) ||
       msg.messageId.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = !selectedStatus || msg.status === selectedStatus;
     const matchesCategory = !selectedCategory || msg.category === selectedCategory;
+    const matchesWebsite = !selectedWebsite || msgWebsite === selectedWebsite;
 
-    return matchesSearch && matchesStatus && matchesCategory;
+    return matchesSearch && matchesStatus && matchesCategory && matchesWebsite;
   });
 
   const getStatusBadge = (status: string) => {
@@ -90,6 +104,23 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
     );
   };
 
+  const getWebsiteBadge = (website?: string | null) => {
+    const name = website || 'Rio Digital Lenses';
+    const isRio = name.toLowerCase().includes('rio');
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border whitespace-nowrap ${
+          isRio
+            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+            : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+        }`}
+      >
+        <Globe className="h-3 w-3 shrink-0" />
+        <span>{name}</span>
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Header & Controls */}
@@ -120,13 +151,30 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by phone, name, content, category, or reply..."
+            placeholder="Search by phone, website, customer, message, or category..."
             className="w-full rounded-xl border border-slate-800 bg-slate-900/60 pl-10 pr-4 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </div>
 
-        {/* Category Filter */}
+        {/* Website / Store Filter */}
         <div className="relative w-full sm:w-48">
+          <Globe className="absolute left-3.5 top-3 h-4 w-4 text-slate-500 pointer-events-none" />
+          <select
+            value={selectedWebsite}
+            onChange={(e) => setSelectedWebsite(e.target.value)}
+            className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-900/60 pl-10 pr-8 py-2.5 text-xs text-slate-100 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="">All Websites</option>
+            {availableWebsites.map((site) => (
+              <option key={site} value={site}>
+                {site}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Category Filter */}
+        <div className="relative w-full sm:w-44">
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
@@ -149,7 +197,7 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
         </div>
 
         {/* Status Filter */}
-        <div className="relative w-full sm:w-48">
+        <div className="relative w-full sm:w-44">
           <Filter className="absolute left-3.5 top-3 h-4 w-4 text-slate-500 pointer-events-none" />
           <select
             value={selectedStatus || ''}
@@ -179,13 +227,13 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold bg-slate-900/40">
                   <th className="py-3.5 pl-4">Time</th>
-                  <th className="py-3.5">Phone Number</th>
-                  <th className="py-3.5">Customer</th>
-                  <th className="py-3.5 max-w-xs">Customer Message</th>
-                  <th className="py-3.5">Category</th>
-                  <th className="py-3.5 max-w-sm">Auto-Reply Text</th>
-                  <th className="py-3.5">Status</th>
-                  <th className="py-3.5 pr-4 text-right">Inspection</th>
+                  <th className="py-3.5 px-3">Website</th>
+                  <th className="py-3.5 px-3">Phone Number</th>
+                  <th className="py-3.5 px-3">Customer</th>
+                  <th className="py-3.5 px-3 max-w-xs">Customer Message</th>
+                  <th className="py-3.5 px-3">Category</th>
+                  <th className="py-3.5 px-3 max-w-sm">Auto-Reply Text</th>
+                  <th className="py-3.5 pr-4">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -195,33 +243,46 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
                     onClick={() => onSelectMessage(msg.messageId)}
                     className="hover:bg-slate-800/40 cursor-pointer transition-colors"
                   >
+                    {/* 1. Time */}
                     <td className="py-3.5 pl-4 font-mono text-slate-400 whitespace-nowrap">
                       <span className="flex items-center space-x-1">
                         <Clock className="h-3 w-3 text-slate-500" />
                         <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </span>
                     </td>
-                    <td className="py-3.5 font-mono text-slate-200 font-semibold whitespace-nowrap">
+
+                    {/* 2. Website (Right side of Time) */}
+                    <td className="py-3.5 px-3 whitespace-nowrap">
+                      {getWebsiteBadge(msg.website || ((msg.rawPayload as Record<string, unknown>)?.storeName as string))}
+                    </td>
+
+                    {/* 3. Phone Number */}
+                    <td className="py-3.5 px-3 font-mono text-slate-200 font-semibold whitespace-nowrap">
                       +{msg.phone}
                     </td>
-                    <td className="py-3.5 text-slate-300 whitespace-nowrap">
+
+                    {/* 4. Customer Name */}
+                    <td className="py-3.5 px-3 text-slate-300 whitespace-nowrap font-medium">
                       {msg.customerName || 'Customer'}
                     </td>
-                    <td className="py-3.5 max-w-[200px] truncate text-slate-200 font-mono" title={msg.textContent || ''}>
+
+                    {/* 5. Customer Message */}
+                    <td className="py-3.5 px-3 max-w-[200px] truncate text-slate-200 font-mono" title={msg.textContent || ''}>
                       {msg.textContent || `[${msg.messageType}]`}
                     </td>
-                    <td className="py-3.5 whitespace-nowrap">
+
+                    {/* 6. Category */}
+                    <td className="py-3.5 px-3 whitespace-nowrap">
                       {getCategoryBadge(msg.category)}
                     </td>
-                    <td className="py-3.5 max-w-[240px] truncate text-slate-400 font-mono" title={msg.replyText || ''}>
+
+                    {/* 7. Auto-Reply Text */}
+                    <td className="py-3.5 px-3 max-w-[240px] truncate text-slate-400 font-mono" title={msg.replyText || ''}>
                       {msg.replyText ? msg.replyText.replace(/\n+/g, ' ') : <span className="text-slate-600 italic">None</span>}
                     </td>
-                    <td className="py-3.5 whitespace-nowrap">{getStatusBadge(msg.status)}</td>
-                    <td className="py-3.5 pr-4 text-right whitespace-nowrap">
-                      <span className="text-emerald-400 font-medium hover:underline">
-                        Inspect Flow →
-                      </span>
-                    </td>
+
+                    {/* 8. Status */}
+                    <td className="py-3.5 pr-4 whitespace-nowrap">{getStatusBadge(msg.status)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -1,11 +1,24 @@
 import { AdminMetrics, MessageDetailsResponse, ProcessingStatus, SimulationResult, StoredMessage, StoredOrder } from '../types';
 
-const BACKEND_BASE = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
-const API_BASE = `${BACKEND_BASE}/api/admin`;
+export function getBackendBase(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('RIO_ERP_BACKEND_URL');
+    if (custom && custom.trim()) return custom.trim().replace(/\/$/, '');
+  }
+  if (import.meta.env.VITE_BACKEND_URL && import.meta.env.VITE_BACKEND_URL.trim()) {
+    return import.meta.env.VITE_BACKEND_URL.trim().replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location.hostname.includes('netlify.app')) {
+    return 'https://grill-reptilian-paying.ngrok-free.dev';
+  }
+  return '';
+}
+
+const getApiBase = () => `${getBackendBase()}/api/admin`;
 
 export const api = {
   async getMetrics(): Promise<AdminMetrics> {
-    const res = await fetch(`${API_BASE}/metrics`);
+    const res = await fetch(`${getApiBase()}/metrics`);
     if (!res.ok) throw new Error('Failed to fetch metrics');
     return res.json();
   },
@@ -23,7 +36,7 @@ export const api = {
     if (status) params.append('status', status);
     if (category && category !== 'ALL') params.append('category', category);
 
-    const res = await fetch(`${API_BASE}/messages?${params.toString()}`);
+    const res = await fetch(`${getApiBase()}/messages?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch messages');
     return res.json();
   },
@@ -37,13 +50,13 @@ export const api = {
       offset: String(offset),
     });
 
-    const res = await fetch(`${API_BASE}/orders?${params.toString()}`);
+    const res = await fetch(`${getApiBase()}/orders?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch orders');
     return res.json();
   },
 
   async getMessageDetails(messageId: string): Promise<MessageDetailsResponse> {
-    const res = await fetch(`${API_BASE}/messages/${encodeURIComponent(messageId)}/details`);
+    const res = await fetch(`${getApiBase()}/messages/${encodeURIComponent(messageId)}/details`);
     if (!res.ok) throw new Error('Failed to fetch execution details');
     return res.json();
   },
@@ -55,7 +68,7 @@ export const api = {
     messageType?: string;
     mediaId?: string;
   }): Promise<SimulationResult> {
-    const res = await fetch(`${API_BASE}/simulate`, {
+    const res = await fetch(`${getApiBase()}/simulate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -68,7 +81,7 @@ export const api = {
   },
 
   async getHealth(): Promise<Record<string, unknown>> {
-    const res = await fetch(`${BACKEND_BASE}/health`);
+    const res = await fetch(`${getBackendBase()}/health`);
     if (!res.ok) throw new Error('Health check failed');
     return res.json();
   },
