@@ -18,6 +18,7 @@ export interface StoreConfig {
   name: string; // e.g., 'Rio Optical', 'Vision Care'
   whatsappPhoneNumberId: string; // Meta Phone Number ID that receives/sends messages
   whatsappDisplayPhone?: string; // Display phone e.g. '917718043078'
+  whatsappWabaId?: string; // Meta WhatsApp Business Account ID (WABA ID)
   whatsappAccessToken?: string; // Token if different from global WHATSAPP_ACCESS_TOKEN
   erp: StoreErpConfig;
 }

@@ -1,14 +1,15 @@
 [
   {
     "id": "site2_friend",
-    "name": "Friend Optical Store",
-    "whatsappPhoneNumberId": "PASTE_FRIEND_PHONE_NUMBER_ID_HERE",
-    "whatsappDisplayPhone": "+91XXXXXXXXXX",
-    "whatsappAccessToken": "PASTE_FRIEND_WHATSAPP_TOKEN_IF_DIFFERENT",
+    "name": "Friend Store",
+    "whatsappPhoneNumberId": "1273435872528900",
+    "whatsappDisplayPhone": "+919619981675",
+    "whatsappWabaId": "1434259885347063",
+    "whatsappAccessToken": "",
     "erp": {
       "type": "rio-erp",
-      "baseUrl": "https://api.friendwebsite.com",
-      "apiKey": "PASTE_FRIEND_API_KEY_HERE",
+      "baseUrl": "http://200.234.35.179:3000",
+      "apiKey": "rio_whatsapp_secret_key_2026",
       "authType": "api-key",
       "username": "",
       "password": "",
