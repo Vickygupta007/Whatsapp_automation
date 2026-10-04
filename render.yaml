@@ -6,13 +6,15 @@ services:
     env: node
     plan: free
     region: oregon
-    buildCommand: npm install && npm run build
-    startCommand: npm run start
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: (npm --prefix backend run prisma:push || true) && npm run start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
       - key: PORT
         value: 3000
       - key: NGROK_ENABLED
