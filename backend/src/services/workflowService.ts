@@ -4,7 +4,7 @@ import { RioErpMapper } from '../integrations/rio-erp/mappers.js';
 import { WhatsAppClient } from '../integrations/whatsapp/client.js';
 import { StoreRegistry } from '../config/stores.js';
 import { OrderParser } from '../parsers/orderParser.js';
-import { ClassifierService } from './classifierService.js';
+import { ClassifierService, extractTargetOrderId } from './classifierService.js';
 import { ImageOcrService } from './imageOcrService.js';
 import { DeliveryTaskData, IRioErpClient } from '../types/erp.js';
 import { ParsedOrder } from '../types/optical.js';
@@ -13,6 +13,97 @@ import { NormalizedMessage } from '../types/webhook.js';
 import { logger } from '../utils/logger.js';
 import { PendingOrderService } from './pendingOrderService.js';
 import { RecentOrdersSessionService } from './recentOrdersSessionService.js';
+import { formatDateTimeIST } from '../utils/dateFormatter.js';
+
+/**
+ * Strict store isolation helper: determines whether an order belongs to the target store.
+ * Prevents orders from one store (e.g. Rio ERP with AHM-, SUR-, SO-, etc.) from leaking
+ * into another store (e.g. ARCO optics with S(26-27)#... format), and vice versa.
+ */
+export function isOrderBelongingToStore(
+  order: { erpOrderId?: string | null; storeId?: string | null; erpResponsePayload?: unknown },
+  targetStoreId: string
+): boolean {
+  const target = (targetStoreId || '').trim().toLowerCase();
+  const orderStoreId = (order.storeId || '').trim().toLowerCase();
+  const rawId = (order.erpOrderId || '').trim();
+  const upperId = rawId.toUpperCase();
+
+  // 1. Explicit storeId on the order
+  if (orderStoreId) {
+    return orderStoreId === target;
+  }
+
+  // 2. Check erpResponsePayload metadata if available
+  const resPayload = order.erpResponsePayload as any;
+  if (resPayload) {
+    const compName = (
+      resPayload.order?.initialCompanyName ||
+      resPayload.party?.companyName ||
+      resPayload.initialCompanyName ||
+      resPayload.companyName ||
+      ''
+    ).toString().toLowerCase();
+    const labLoc = (
+      resPayload.order?.labLocation ||
+      resPayload.labLocation ||
+      ''
+    ).toString().toLowerCase();
+
+    if (compName.includes('rio') || labLoc.includes('rio')) {
+      return target === 'rio';
+    }
+    if (compName.includes('arco') || labLoc.includes('arco')) {
+      return target === 'arco';
+    }
+  }
+
+  // 3. Known signatures
+  // Rio ERP signatures:
+  // - Direct order IDs: SO-*, ORD-RIO-*, RIO-*
+  // - Lab prefix orders: AHM-*-*, SUR-*-*, MUM-*-*, PUN-*-*, DEL-*-*, RAJ-*-* or any ^[A-Z]{3}-\d+-\d+$ pattern
+  // - Any ID containing RIO
+  const isRioSignature =
+    upperId.startsWith('SO-') ||
+    upperId.startsWith('ORD-RIO') ||
+    upperId.startsWith('RIO-') ||
+    upperId.startsWith('AHM-') ||
+    upperId.startsWith('SUR-') ||
+    upperId.startsWith('MUM-') ||
+    upperId.startsWith('PUN-') ||
+    upperId.startsWith('DEL-') ||
+    upperId.startsWith('RAJ-') ||
+    /^[A-Z]{3}-\d+-\d+$/.test(upperId) ||
+    upperId.includes('RIO');
+
+  // ARCO signatures:
+  // - S(26-27)#...
+  // - ARCO-...
+  // - S-...
+  // - Any ID containing ARCO
+  const isArcoSignature =
+    upperId.startsWith('S(') ||
+    upperId.startsWith('ARCO-') ||
+    upperId.startsWith('S-') ||
+    upperId.includes('ARCO');
+
+  if (target === 'arco') {
+    if (isRioSignature) return false;
+    return isArcoSignature;
+  }
+
+  if (target === 'rio') {
+    if (isArcoSignature) return false;
+    if (isRioSignature) return true;
+    // Default legacy orders without explicit ARCO prefix to Rio
+    return true;
+  }
+
+  // Future stores: if storeId is missing, reject if it has Rio or Arco signatures
+  if (isRioSignature || isArcoSignature) return false;
+
+  return false;
+}
 
 export class WorkflowService {
   private erpAdapter: IRioErpClient;
@@ -207,7 +298,7 @@ export class WorkflowService {
       }
 
       // Step 5: Message Classified
-      let classification = ClassifierService.classify(text, isCustomerRegistered, phone);
+      let classification = ClassifierService.classify(text, isCustomerRegistered, phone, store.id);
 
       if (imageExtractedOrder && imageExtractedOrder.isOrder) {
         // Save pending draft order awaiting customer confirmation
@@ -331,15 +422,25 @@ We received your image, but the prescription numbers (Sphere, Cylinder, Axis) we
           }
         | undefined = undefined;
 
+      // Handle UNREGISTERED_CUSTOMER: Store-branded registration notification
+      if (classification.category === 'UNREGISTERED_CUSTOMER') {
+        replyText = `⚠️ *Account Not Registered*
+
+Your WhatsApp number is not linked to an ${store.name} account.
+
+Please contact your ${store.name} coordinator to activate your account.`;
+        classification.replyText = replyText;
+      }
+
       // Handle GREETING: Personalized welcome message with customer account and assigned lab details
       if (classification.category === 'GREETING') {
-        const greetingName = customerName || party?.name || 'Customer Name';
-        const accountName = party?.name || customerName || 'Ash';
-        const accountId = party?.accountId || '100023';
-        const labName = party?.labName || 'RIO-AHMEDABAD';
+        const greetingName = customerName || party?.name || 'Customer';
+        const accountName = party?.name || customerName || store.name;
+        const accountId = party?.accountId || '1001';
+        const labName = party?.labName || `${store.name} Lab`;
 
         replyText = `👋 Hello ${greetingName},
-Welcome to Rio Digital Lenses 👓
+Welcome to ${store.name} 👓
 🏢 Account: ${accountName} (${accountId})
 🏭 Assigned Lab: ${labName}
 How can we help you today?
@@ -468,6 +569,7 @@ Please verify your order details:${orderInfoSection}${extraSpecsSection}
               },
               rawMessage: pendingDraft.rawText || (pendingDraft.mediaId ? `[CONFIRMED_IMAGE_ORDER] Ref: ${pendingDraft.order.customerRefNo}` : `[CONFIRMED_ORDER] Ref: ${pendingDraft.order.customerRefNo}`),
               status: 'ORDER_CREATED',
+              storeId: store.id,
             });
             createdOrderId = dbOrder.id;
 
@@ -593,18 +695,43 @@ Remark: __
       } else if (classification.category === 'ORDER_STATUS') {
         let targetOrderId = (classification.orderDetails?.queriedOrderId as string) || undefined;
         if (!targetOrderId && text) {
-          const match = text.match(/\b(SO-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)\b/i);
-          if (match) {
-            targetOrderId = match[1].toUpperCase();
-          }
+          targetOrderId = extractTargetOrderId(text) || undefined;
         }
 
         if (targetOrderId) {
           try {
-            const statusResult = await activeErp.getOrderStatus(targetOrderId);
+            let localDbOrder = await AppRepository.findOrderByErpOrderId(targetOrderId);
+            if (localDbOrder && !isOrderBelongingToStore(localDbOrder, store.id)) {
+              localDbOrder = null;
+            }
+            if (!localDbOrder) {
+              const userOrders = await AppRepository.findAllOrdersByPhone(phone, 50);
+              const found = userOrders.find(
+                (o) =>
+                  isOrderBelongingToStore(o, store.id) &&
+                  o.erpOrderId &&
+                  (o.erpOrderId.toLowerCase() === targetOrderId!.toLowerCase() ||
+                    o.erpOrderId.toLowerCase().includes(targetOrderId!.toLowerCase()) ||
+                    targetOrderId!.toLowerCase().includes(o.erpOrderId.toLowerCase()))
+              );
+              if (found) {
+                localDbOrder = found;
+                targetOrderId = found.erpOrderId!;
+              }
+            }
+
+            if (!isOrderBelongingToStore({ erpOrderId: targetOrderId, storeId: localDbOrder?.storeId }, store.id)) {
+              replyText = `🔍 *Order Not Found*
+
+We could not find an active order with ID: *${targetOrderId}* in ${store.name}.
+
+Please check your Order ID or reply *STATUS* to see all your active orders.`;
+            } else {
+              const lookupId = localDbOrder?.erpOrderRef || targetOrderId;
+              const statusResult = await (activeErp.getOrderStatus as any)(lookupId, phone);
             await logStep('REPLY_SELECTION', 'SUCCESS', {
               action: 'ORDER_STATUS_LOOKUP',
-              orderId: targetOrderId,
+              orderId: lookupId,
               found: statusResult.success,
               order: statusResult.order,
             });
@@ -620,7 +747,6 @@ Remark: __
             const ordCustomer = ((ord as any)?.customer || (ord as any)?.details?.customer || '').trim().toLowerCase();
             const ordPhone = ((ord as any)?.details?.whatsappSenderPhone || (ord as any)?.details?.phone || (ord as any)?.phone || '').replace(/\D/g, '').slice(-10);
 
-            const localDbOrder = await AppRepository.findOrderByErpOrderId(targetOrderId);
             const cleanDbPhone = localDbOrder?.phone ? localDbOrder.phone.replace(/\D/g, '').slice(-10) : '';
 
             const belongsToCustomer = Boolean(
@@ -659,20 +785,29 @@ Remark: __
                 }
               }
 
-              const formattedDate = ord.orderDate ? ord.orderDate.replace('T', ' ') : 'Today';
+              const { date: formattedDate, time: formattedTime } = formatDateTimeIST(
+                ord.orderDate || localDbOrder?.createdAt,
+                (ord as any).orderTime || (ord as any).time || (ord as any).details?.time
+              );
+              const timeLine = formattedTime ? `\n• Time: *${formattedTime}*` : '';
               const lab = ord.labLocation || party?.labName || `${store.name}-LAB`;
               const cust = ord.customer || party?.name || 'Customer';
               const prod = ord.product || localDbOrder?.product || '';
               const lens = (ord.lensType || localDbOrder?.lensType) ? ` (${ord.lensType || localDbOrder?.lensType})` : '';
               const coating = realCoating ? ` (${realCoating})` : '';
               const ref = ord.customerRefNo || localDbOrder?.customerRefNo || 'N/A';
-              const stage = ord.pendingAt || 'Lab Processing';
-              const currentStatus = deliveryTask?.status || ord.status || 'In Progress';
+              const liveStatus = ord.status || deliveryTask?.status || 'In Progress';
+              const stage = ord.pendingAt || liveStatus;
+
+              const displayOrderId =
+                (ord.orderId && !ord.orderId.match(/^[0-9a-f]{24}$/i) && !ord.orderId.startsWith('ARCO-'))
+                  ? ord.orderId
+                  : localDbOrder?.erpOrderRef || localDbOrder?.erpOrderId || ord.orderId || targetOrderId;
 
               replyText = `🔍 *ORDER STATUS*
 
-📦 Order: *${ord.orderId}*
-⚡ Status: *${currentStatus}*
+📦 Order: *${displayOrderId}*
+⚡ Status: *${liveStatus}*
 🔬 Stage: *${stage}*
 
 📋 *Details:*
@@ -680,7 +815,7 @@ Remark: __
 • Product: *${prod}*${lens}${coating}
 • Lab: *${lab}*
 • Account: *${cust}*
-• Date: *${formattedDate}*
+• Date: *${formattedDate}*${timeLine}
 
 🏭 Our lab is actively processing your order.
 
@@ -693,7 +828,11 @@ Remark: __
                 } catch {}
               }
               const currentStatus = deliveryTask?.status || localDbOrder.status || 'In Progress';
-              const formattedDate = localDbOrder.createdAt ? localDbOrder.createdAt.toISOString().slice(0, 10) : 'Today';
+              const { date: formattedDate, time: formattedTime } = formatDateTimeIST(
+                localDbOrder.createdAt,
+                (localDbOrder as any).time
+              );
+              const timeLine = formattedTime ? `\n• Time: *${formattedTime}*` : '';
               const realCoating = (localDbOrder.coating && localDbOrder.coating !== '-' && localDbOrder.coating !== '__' && localDbOrder.coating.toUpperCase() !== 'UNCOTE') ? ` (${localDbOrder.coating})` : '';
               const lens = localDbOrder.lensType ? ` (${localDbOrder.lensType})` : '';
 
@@ -708,7 +847,7 @@ Remark: __
 • Product: *${localDbOrder.product || ''}*${lens}${realCoating}
 • Lab: *${party?.labName || `${store.name}-LAB`}*
 • Account: *${party?.name || 'Customer'}*
-• Date: *${formattedDate}*
+• Date: *${formattedDate}*${timeLine}
 
 🏭 Our lab is actively processing your order.
 
@@ -720,6 +859,7 @@ We could not find an active order with ID: *${targetOrderId}*.
 
 Please check your Order ID or reply *STATUS* to see all your active orders.`;
             }
+          }
           } catch (statusErr: unknown) {
             const errMsg = statusErr instanceof Error ? statusErr.message : String(statusErr);
             logger.error(`[WorkflowService] ERP order status check failed for ${targetOrderId}: ${errMsg}`);
@@ -751,6 +891,9 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
                 const partyName = party?.name ? party.name.trim().toLowerCase() : '';
 
                 for (const ord of erpOrdersRes.orders) {
+                  if (!isOrderBelongingToStore({ erpOrderId: ord.orderId }, store.id)) {
+                    continue;
+                  }
                   const ordPartyId = ord.partyId || (ord as any).details?.partyId;
                   const ordAccountId = (ord as any).details?.partyAccountId;
                   const ordCustomer = ((ord as any).customer || (ord as any).details?.customer || '').trim().toLowerCase();
@@ -783,17 +926,20 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
             }
           }
 
-          // 2. Merge with local DB orders (already filtered by phone)
+          // 2. Merge with local DB orders (strictly isolated per store)
           try {
             const dbOrders = await AppRepository.findAllOrdersByPhone(phone, 200);
             const dbOrdersByErpId = new Map<string, StoredOrder>();
             for (const dbo of dbOrders) {
+              // Store isolation guard: strictly ensure order belongs to current store
+              if (!isOrderBelongingToStore(dbo, store.id)) continue;
+
               if (dbo.erpOrderId) {
                 dbOrdersByErpId.set(dbo.erpOrderId, dbo);
               }
             }
 
-            // Enrich Rio ERP orders with local DB actual coating/product/ref
+            // Enrich orders with local DB actual coating/product/ref
             for (const ord of combinedOrders) {
               const matchedDbOrder = dbOrdersByErpId.get(ord.orderId);
               if (matchedDbOrder) {
@@ -811,6 +957,9 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
             }
 
             for (const dbo of dbOrders) {
+              // Store isolation guard: strictly ensure order belongs to current store
+              if (!isOrderBelongingToStore(dbo, store.id)) continue;
+
               if (dbo.erpOrderId && !seenIds.has(dbo.erpOrderId)) {
                 seenIds.add(dbo.erpOrderId);
                 const realDboCoating = (dbo.coating && dbo.coating !== '-' && dbo.coating !== '__' && dbo.coating.toUpperCase() !== 'UNCOTE') ? dbo.coating : null;
@@ -900,14 +1049,14 @@ We couldn't find any recent orders associated with your account (*${party?.name 
 
 To check a specific order, please send:
 *STATUS <Order ID>*
-Example: *STATUS SO-2026-581335720*
+Example: *STATUS ${store.id === 'rio' ? 'SO-2026-581335720' : 'S(26-27)#1'}*
 
 📸 Send a photo of your prescription slip or reply *ORDER FORMAT* to place your lens order!`;
           } else if (activeOrders.length === 0) {
             replyText = `✅ You have no active orders. All your orders have been delivered.`;
           } else {
             // Cache active orders in session
-            RecentOrdersSessionService.setRecentOrders(phone, activeOrders);
+            RecentOrdersSessionService.setRecentOrders(phone, activeOrders, store.id);
 
             const formattedItems = activeOrders
               .map((ord, idx) => `${idx + 1}. Order ID: ${ord.orderId}\n   Status: ${ord.deliveryStatus}`)
@@ -937,6 +1086,13 @@ Example: *STATUS SO-2026-581335720*
             }
           }
         }
+      }
+
+      // Ensure all reply text uses the active store branding
+      if (store.id !== 'rio') {
+        replyText = replyText
+          .replace(/Rio Digital Lenses/g, store.name)
+          .replace(/Rio ERP/g, `${store.name} ERP`);
       }
 
       await AppRepository.updateMessageReply(messageId, {

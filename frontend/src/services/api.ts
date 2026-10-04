@@ -1,4 +1,4 @@
-import { AdminMetrics, MessageDetailsResponse, ProcessingStatus, SimulationResult, StoredMessage, StoredOrder } from '../types';
+import { AdminMetrics, MessageDetailsResponse, ProcessingStatus, SimulationResult, StoreInfo, StoredMessage, StoredOrder } from '../types';
 
 export function getBackendBase(): string {
   if (typeof window !== 'undefined') {
@@ -78,6 +78,16 @@ export const api = {
       throw new Error(err.message || 'Simulation request failed');
     }
     return res.json();
+  },
+
+  async getStores(): Promise<StoreInfo[]> {
+    try {
+      const res = await fetch(`${getApiBase()}/stores`);
+      if (!res.ok) return [];
+      return res.json();
+    } catch {
+      return [];
+    }
   },
 
   async getHealth(): Promise<Record<string, unknown>> {

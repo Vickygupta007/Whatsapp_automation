@@ -4,12 +4,13 @@ import { config } from './env.js';
 import { logger } from '../utils/logger.js';
 
 export interface StoreErpConfig {
-  type: 'rio-erp' | 'mock';
+  type: 'rio-erp' | 'hostinger-optical' | 'mock';
   baseUrl?: string;
   apiKey?: string;
   authType?: 'api-key' | 'bearer' | 'basic';
   username?: string;
   password?: string;
+  role?: string;
   useMock?: boolean;
 }
 
@@ -19,17 +20,38 @@ export interface StoreConfig {
   whatsappPhoneNumberId: string; // Meta Phone Number ID that receives/sends messages
   whatsappDisplayPhone?: string; // Display phone e.g. '917718043078'
   whatsappWabaId?: string; // Meta WhatsApp Business Account ID (WABA ID)
+  whatsappAppId?: string; // Meta App ID
+  whatsappAppSecret?: string; // Meta App Secret
+  whatsappVerifyToken?: string; // Optional custom webhook verify token for this store
   whatsappAccessToken?: string; // Token if different from global WHATSAPP_ACCESS_TOKEN
+  websiteUrl?: string; // Customer-facing website URL
   erp: StoreErpConfig;
 }
 
 export class StoreRegistry {
   private static stores: Map<string, StoreConfig> = new Map();
   private static initialized = false;
+  private static lastMtime = 0;
 
-  public static initialize(): void {
-    if (this.initialized) return;
+  public static initialize(force = false): void {
+    const candidatePaths = [
+      path.resolve(process.cwd(), 'config/stores.json'),
+      path.resolve(process.cwd(), 'backend/config/stores.json'),
+      path.resolve(process.cwd(), '../config/stores.json'),
+    ];
+    const storesJsonPath = candidatePaths.find((p) => fs.existsSync(p));
+    let currentMtime = 0;
+    if (storesJsonPath) {
+      try {
+        currentMtime = fs.statSync(storesJsonPath).mtimeMs;
+      } catch {
+        currentMtime = 0;
+      }
+    }
+
+    if (this.initialized && !force && currentMtime <= this.lastMtime) return;
     this.stores.clear();
+    this.lastMtime = currentMtime;
 
     // 1. Default Store: Rio Optical (from existing .env)
     const defaultStore: StoreConfig = {
@@ -51,12 +73,6 @@ export class StoreRegistry {
     this.stores.set(defaultStore.id, defaultStore);
 
     // 2. Load any additional stores from stores.json if present
-    const candidatePaths = [
-      path.resolve(process.cwd(), 'config/stores.json'),
-      path.resolve(process.cwd(), 'backend/config/stores.json'),
-      path.resolve(process.cwd(), '../config/stores.json'),
-    ];
-    const storesJsonPath = candidatePaths.find((p) => fs.existsSync(p));
     if (storesJsonPath) {
       try {
         const fileContent = fs.readFileSync(storesJsonPath, 'utf8');
@@ -71,6 +87,7 @@ export class StoreRegistry {
           if (Array.isArray(customStores)) {
             for (const s of customStores) {
               if (s.whatsappPhoneNumberId) {
+                s.whatsappAccessToken = s.whatsappAccessToken || config.WHATSAPP_ACCESS_TOKEN;
                 this.stores.set(s.whatsappPhoneNumberId, s);
                 this.stores.set(s.id, s);
                 logger.info(`[StoreRegistry] Registered additional store: "${s.name}" (ID: ${s.id}, PhoneID: ${s.whatsappPhoneNumberId})`);
@@ -111,7 +128,20 @@ export class StoreRegistry {
    */
   public static getStoreById(storeId: string): StoreConfig | undefined {
     this.initialize();
-    return this.stores.get(storeId);
+    if (!storeId) return undefined;
+    const normalized = storeId.toLowerCase().trim();
+    if (this.stores.has(normalized)) {
+      return this.stores.get(normalized);
+    }
+    for (const [key, store] of this.stores.entries()) {
+      if (key.toLowerCase() === normalized || store.id.toLowerCase() === normalized) {
+        return store;
+      }
+      if (store.id.toLowerCase().startsWith(normalized) || normalized.startsWith(store.id.toLowerCase())) {
+        return store;
+      }
+    }
+    return undefined;
   }
 
   /**

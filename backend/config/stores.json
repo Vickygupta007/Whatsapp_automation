@@ -1,18 +1,23 @@
 [
   {
-    "id": "site2_friend",
-    "name": "Friend Store",
+    "id": "arco",
+    "name": "ARCO optics",
     "whatsappPhoneNumberId": "1273435872528900",
     "whatsappDisplayPhone": "+919619981675",
     "whatsappWabaId": "1434259885347063",
-    "whatsappAccessToken": "",
+    "whatsappAppId": "2892087014487823",
+    "whatsappAppSecret": "7a6b6275b145bdedf621b082b34d84c3",
+    "whatsappVerifyToken": "arco_optics_verify_token_2026",
+    "whatsappAccessToken": "EAAW5ie7wsyIBSnnkdE4Rmv9K0MdDgKCZAfTEwq078vI0aTtgU8jdyGhye91SShj9RkxPxxOX4ZCFJzBgo1n8JcXUKIZCvgDUiKEPZAI2wZAYuKuHm2fCE4TnefqZBUCBZCuMK0nQC2Bq6T5p6zZCdSCfukrmsqsj5uDo7nSZAP6X3uH4xTORqpJGB5ypZCZCDnNswZDZD",
+    "websiteUrl": "https://aliceblue-swallow-604003.hostingersite.com",
     "erp": {
-      "type": "rio-erp",
-      "baseUrl": "http://200.234.35.179:3000",
-      "apiKey": "rio_whatsapp_secret_key_2026",
-      "authType": "api-key",
-      "username": "",
-      "password": "",
+      "type": "hostinger-optical",
+      "baseUrl": "https://greenyellow-ostrich-656761.hostingersite.com",
+      "apiKey": "",
+      "authType": "bearer",
+      "username": "sadguruopticals2009@gmail.com",
+      "password": "sadguru123",
+      "role": "admin",
       "useMock": false
     }
   }

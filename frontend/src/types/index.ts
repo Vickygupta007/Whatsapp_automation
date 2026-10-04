@@ -92,8 +92,17 @@ export interface StoredOrder {
   status: ProcessingStatus;
   erpRequestPayload: Record<string, unknown> | null;
   erpResponsePayload: Record<string, unknown> | null;
+  website?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface StoreInfo {
+  id: string;
+  name: string;
+  whatsappPhoneNumberId?: string;
+  whatsappDisplayPhone?: string;
+  websiteUrl?: string;
 }
 
 export interface ProcessingLog {

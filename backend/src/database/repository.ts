@@ -49,6 +49,7 @@ export interface StoredOrder {
   erpResponsePayload: unknown;
   createdAt: Date;
   updatedAt: Date;
+  storeId?: string | null;
 }
 
 export interface StoredProcessingLog {
@@ -281,6 +282,7 @@ export class AppRepository {
     rxData?: unknown;
     rawMessage: string;
     status: ProcessingStatus;
+    storeId?: string | null;
   }): Promise<{ id: string }> {
     const prisma = await getPrismaClient();
     if (prisma) {
@@ -325,6 +327,7 @@ export class AppRepository {
       erpResponsePayload: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      storeId: data.storeId ?? null,
     };
     memStore.orders.set(id, stored);
     return { id };
@@ -436,28 +439,45 @@ export class AppRepository {
             phone: { contains: phone10 },
             erpOrderId: { not: null },
           },
+          include: {
+            message: {
+              select: { rawPayload: true },
+            },
+          },
           orderBy: { createdAt: 'desc' },
           take: limit,
         });
-        return orders.map((order) => ({
-          id: order.id,
-          messageId: order.messageId,
-          erpOrderId: order.erpOrderId,
-          erpOrderRef: order.erpOrderRef,
-          phone: order.phone,
-          customerRefNo: order.customerRefNo,
-          product: order.product,
-          lensType: order.lensType,
-          coating: order.coating,
-          index: order.index,
-          rxData: order.rxData,
-          rawMessage: order.rawMessage,
-          status: order.status as ProcessingStatus,
-          erpRequestPayload: order.erpRequestPayload,
-          erpResponsePayload: order.erpResponsePayload,
-          createdAt: order.createdAt,
-          updatedAt: order.updatedAt,
-        }));
+        return orders.map((order) => {
+          const raw = order.message?.rawPayload as Record<string, any> | null;
+          let storeId: string | null = (raw?.storeId as string) || null;
+          if (!storeId && raw?.recipientPhoneNumberId) {
+            if (raw.recipientPhoneNumberId === '1273435872528900') {
+              storeId = 'arco';
+            } else if (raw.recipientPhoneNumberId === '1327525300446181' || raw.recipientPhoneNumberId === '1225478070642817') {
+              storeId = 'rio';
+            }
+          }
+          return {
+            id: order.id,
+            messageId: order.messageId,
+            erpOrderId: order.erpOrderId,
+            erpOrderRef: order.erpOrderRef,
+            phone: order.phone,
+            customerRefNo: order.customerRefNo,
+            product: order.product,
+            lensType: order.lensType,
+            coating: order.coating,
+            index: order.index,
+            rxData: order.rxData,
+            rawMessage: order.rawMessage,
+            status: order.status as ProcessingStatus,
+            erpRequestPayload: order.erpRequestPayload,
+            erpResponsePayload: order.erpResponsePayload,
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt,
+            storeId,
+          };
+        });
       } catch {
         // Fallback to memStore
       }
@@ -484,9 +504,23 @@ export class AppRepository {
               { erpOrderId: cleanId.toUpperCase() },
             ],
           },
+          include: {
+            message: {
+              select: { rawPayload: true },
+            },
+          },
           orderBy: { createdAt: 'desc' },
         });
         if (order) {
+          const raw = order.message?.rawPayload as Record<string, any> | null;
+          let storeId: string | null = (raw?.storeId as string) || null;
+          if (!storeId && raw?.recipientPhoneNumberId) {
+            if (raw.recipientPhoneNumberId === '1273435872528900') {
+              storeId = 'arco';
+            } else if (raw.recipientPhoneNumberId === '1327525300446181' || raw.recipientPhoneNumberId === '1225478070642817') {
+              storeId = 'rio';
+            }
+          }
           return {
             id: order.id,
             messageId: order.messageId,
@@ -505,6 +539,7 @@ export class AppRepository {
             erpResponsePayload: order.erpResponsePayload,
             createdAt: order.createdAt,
             updatedAt: order.updatedAt,
+            storeId,
           };
         }
       } catch {
@@ -571,20 +606,12 @@ export class AppRepository {
     if (prisma) {
       try {
         const filterOld = {
-          OR: [
-            {
-              rawPayload: {
-                path: ['entry', '0', 'changes', '0', 'value', 'metadata', 'phone_number_id'],
-                equals: '1327525300446181',
-              },
+          NOT: {
+            rawPayload: {
+              path: ['entry', '0', 'changes', '0', 'value', 'metadata', 'phone_number_id'],
+              equals: '1225478070642817',
             },
-            {
-              rawPayload: {
-                path: ['simulated'],
-                equals: true,
-              },
-            },
-          ],
+          },
         };
 
         const [
@@ -693,20 +720,12 @@ export class AppRepository {
     if (prisma) {
       try {
         const where: Record<string, unknown> = {
-          OR: [
-            {
-              rawPayload: {
-                path: ['entry', '0', 'changes', '0', 'value', 'metadata', 'phone_number_id'],
-                equals: '1327525300446181',
-              },
+          NOT: {
+            rawPayload: {
+              path: ['entry', '0', 'changes', '0', 'value', 'metadata', 'phone_number_id'],
+              equals: '1225478070642817',
             },
-            {
-              rawPayload: {
-                path: ['simulated'],
-                equals: true,
-              },
-            },
-          ],
+          },
         };
         if (status) {
           where.status = status;

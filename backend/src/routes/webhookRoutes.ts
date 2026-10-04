@@ -3,11 +3,17 @@ import { WebhookController } from '../controllers/webhookController.js';
 
 const router = Router();
 
-// Meta WhatsApp Webhook endpoints
+// 1. Store-specific webhook endpoints (Option 2): e.g. /webhook/arco, /webhook/rio, /whatsapp-cloud-inbound/arco
+router.get('/whatsapp-cloud-inbound/:storeId', WebhookController.verifyWebhook);
+router.post('/whatsapp-cloud-inbound/:storeId', WebhookController.handleIncomingWebhook);
+
+router.get('/webhook/:storeId', WebhookController.verifyWebhook);
+router.post('/webhook/:storeId', WebhookController.handleIncomingWebhook);
+
+// 2. Global default webhook endpoints (Option 1 backwards-compatible)
 router.get('/whatsapp-cloud-inbound', WebhookController.verifyWebhook);
 router.post('/whatsapp-cloud-inbound', WebhookController.handleIncomingWebhook);
 
-// Also accept /webhook path in case configured in Meta Portal
 router.get('/webhook', WebhookController.verifyWebhook);
 router.post('/webhook', WebhookController.handleIncomingWebhook);
 

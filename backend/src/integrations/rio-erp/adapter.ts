@@ -11,6 +11,7 @@ import {
 import { logger } from '../../utils/logger.js';
 import { LiveRioErpClient } from './client.js';
 import { MockRioErpClient } from './mockClient.js';
+import { HostingerOpticalClient } from '../hostinger-optical/client.js';
 
 import { StoreErpConfig, StoreRegistry } from '../../config/stores.js';
 
@@ -26,6 +27,14 @@ export class RioErpAdapter implements IRioErpClient {
     }
 
     const erpConfig = customClientOrConfig && 'type' in (customClientOrConfig as any) ? (customClientOrConfig as StoreErpConfig) : undefined;
+    
+    if (erpConfig?.type === 'hostinger-optical') {
+      logger.info(`[RioErpAdapter] Using HostingerOpticalClient for store ERP: ${erpConfig.baseUrl}`);
+      this.client = new HostingerOpticalClient(erpConfig);
+      this.isMock = false;
+      return;
+    }
+
     const shouldUseMock =
       erpConfig?.useMock ??
       (config.RIO_ERP_USE_MOCK ||
@@ -84,21 +93,13 @@ export class RioErpAdapter implements IRioErpClient {
 }
 
 export class ErpAdapterFactory {
-  private static adapters: Map<string, RioErpAdapter> = new Map();
-
   public static getAdapterForStore(storeId: string): RioErpAdapter {
-    if (!this.adapters.has(storeId)) {
-      const store = StoreRegistry.getStoreById(storeId);
-      if (store) {
-        this.adapters.set(storeId, new RioErpAdapter(store.erp));
-      } else {
-        this.adapters.set(storeId, new RioErpAdapter());
-      }
+    const store = StoreRegistry.getStoreById(storeId);
+    if (store) {
+      return new RioErpAdapter(store.erp);
     }
-    return this.adapters.get(storeId)!;
+    return new RioErpAdapter();
   }
 
-  public static clear(): void {
-    this.adapters.clear();
-  }
+  public static clear(): void {}
 }

@@ -62,6 +62,26 @@ export class AdminController {
   }
 
   /**
+   * GET /api/admin/stores
+   * Returns list of configured stores / websites
+   */
+  public static async getStores(req: Request, res: Response): Promise<void> {
+    try {
+      const stores = StoreRegistry.getAllStores().map((s) => ({
+        id: s.id,
+        name: s.name,
+        whatsappPhoneNumberId: s.whatsappPhoneNumberId,
+        whatsappDisplayPhone: s.whatsappDisplayPhone,
+        websiteUrl: s.websiteUrl,
+      }));
+      res.json(stores);
+    } catch (err: unknown) {
+      logger.error(`[AdminController] Error fetching stores: ${String(err)}`);
+      res.status(500).json({ error: 'Failed to fetch stores' });
+    }
+  }
+
+  /**
    * GET /api/admin/orders
    */
   public static async getOrders(req: Request, res: Response): Promise<void> {
@@ -70,7 +90,21 @@ export class AdminController {
       const offset = parseInt(req.query.offset as string, 10) || 0;
 
       const result = await AppRepository.getOrders(limit, offset);
-      res.json(result);
+      const enrichedItems = result.items.map((order) => {
+        let website = '';
+        const payload = order.erpRequestPayload as Record<string, unknown> | undefined;
+        if (payload?.storeName) website = String(payload.storeName);
+        else if (payload?.storeId) website = StoreRegistry.getStoreById(String(payload.storeId))?.name || '';
+        return {
+          ...order,
+          website: website || 'Rio Optical',
+        };
+      });
+
+      res.json({
+        ...result,
+        items: enrichedItems,
+      });
     } catch (err: unknown) {
       logger.error(`[AdminController] Error fetching orders: ${String(err)}`);
       res.status(500).json({ error: 'Failed to fetch orders' });

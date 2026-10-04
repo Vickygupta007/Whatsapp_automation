@@ -14,11 +14,12 @@ import {
   Sparkles,
   Tag,
 } from 'lucide-react';
-import { AdminMetrics, StoredMessage } from '../types';
+import { AdminMetrics, StoreInfo, StoredMessage } from '../types';
 
 interface DashboardPageProps {
   metrics: AdminMetrics | null;
   recentMessages: StoredMessage[];
+  stores?: StoreInfo[];
   isLoading?: boolean;
   onRefresh?: () => void;
   onSelectMessage: (messageId: string) => void;
@@ -38,13 +39,30 @@ type FilterCategory =
 export const DashboardPage: React.FC<DashboardPageProps> = ({
   metrics,
   recentMessages,
+  stores,
   onSelectMessage,
   onNavigateToMessages,
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterCategory>('ALL');
+  const [selectedWebsite, setSelectedWebsite] = useState<string>('');
 
-  // Filter messages based on selected filter tab
+  // Extract all distinct website / store names from configured stores AND messages
+  const availableWebsites = Array.from(
+    new Set([
+      ...(stores || []).map((s) => s.name),
+      ...recentMessages
+        .map((m) => m.website || ((m.rawPayload as Record<string, unknown>)?.storeName as string))
+        .filter((w): w is string => Boolean(w && w.trim())),
+    ])
+  );
+
+  // Filter messages based on selected filter tab and website
   const filteredMessages = recentMessages.filter((msg) => {
+    const msgWebsite = msg.website || ((msg.rawPayload as Record<string, unknown>)?.storeName as string) || '';
+    if (selectedWebsite && msgWebsite !== selectedWebsite) {
+      return false;
+    }
+
     const cat = msg.category || '';
     const status = msg.status || '';
     const replyStatus = msg.replyStatus || '';
@@ -195,14 +213,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   const getWebsiteBadge = (website?: string | null) => {
     const name = website || 'Store / Website';
-    const isRio = name.toLowerCase().includes('rio');
+    const lower = name.toLowerCase();
+    const isRio = lower.includes('rio');
+    const isArco = lower.includes('arco');
+    const colorClasses = isRio
+      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+      : isArco
+      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+      : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20';
+
     return (
       <span
-        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border whitespace-nowrap ${
-          isRio
-            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-            : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
-        }`}
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border whitespace-nowrap ${colorClasses}`}
       >
         <Globe className="h-3 w-3 shrink-0" />
         <span>{name}</span>
@@ -397,9 +419,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </button>
         </div>
 
-        {/* Filters Bar (7 Required Filters) */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-2 pt-1 text-xs scrollbar-none">
-          <span className="text-slate-500 font-medium mr-1 flex items-center space-x-1">
+        {/* Filters Bar (Categories & Website Selector) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-2 pt-1 text-xs scrollbar-none flex-1">
+            <span className="text-slate-500 font-medium mr-1 flex items-center space-x-1">
             <Filter className="h-3 w-3" />
             <span>Filter:</span>
           </span>
@@ -481,6 +504,24 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             ❌ Failed Messages
           </button>
         </div>
+
+        {/* Website / Store Selector */}
+        <div className="relative w-full sm:w-48 shrink-0">
+          <Globe className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
+          <select
+            value={selectedWebsite}
+            onChange={(e) => setSelectedWebsite(e.target.value)}
+            className="w-full appearance-none rounded-xl border border-slate-800 bg-slate-950 pl-8 pr-7 py-1.5 text-xs font-medium text-slate-200 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="">All Websites</option>
+            {availableWebsites.map((site) => (
+              <option key={site} value={site}>
+                {site}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
         {filteredMessages.length === 0 ? (
           <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl space-y-3">

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Clock, Filter, Globe, MessageSquare, RefreshCw, Search } from 'lucide-react';
-import { ProcessingStatus, StoredMessage } from '../types';
+import { ProcessingStatus, StoreInfo, StoredMessage } from '../types';
 
 interface MessagesPageProps {
   messages: StoredMessage[];
+  stores?: StoreInfo[];
   isLoading: boolean;
   onRefresh: () => void;
   onSelectMessage: (messageId: string) => void;
@@ -24,6 +25,7 @@ const STATUS_OPTIONS: ProcessingStatus[] = [
 
 export const MessagesPage: React.FC<MessagesPageProps> = ({
   messages,
+  stores,
   isLoading,
   onRefresh,
   onSelectMessage,
@@ -34,13 +36,14 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWebsite, setSelectedWebsite] = useState<string>('');
 
-  // Extract all distinct website / store names present in the messages
+  // Extract all distinct website / store names from configured stores AND messages
   const availableWebsites = Array.from(
-    new Set(
-      messages
-        .map((m) => m.website || (m.rawPayload as Record<string, unknown>)?.storeName as string || 'Store / Website')
-        .filter(Boolean)
-    )
+    new Set([
+      ...(stores || []).map((s) => s.name),
+      ...messages
+        .map((m) => m.website || ((m.rawPayload as Record<string, unknown>)?.storeName as string))
+        .filter((w): w is string => Boolean(w && w.trim())),
+    ])
   );
 
   const filteredMessages = messages.filter((msg) => {
@@ -106,14 +109,18 @@ export const MessagesPage: React.FC<MessagesPageProps> = ({
 
   const getWebsiteBadge = (website?: string | null) => {
     const name = website || 'Store / Website';
-    const isRio = name.toLowerCase().includes('rio');
+    const lower = name.toLowerCase();
+    const isRio = lower.includes('rio');
+    const isArco = lower.includes('arco');
+    const colorClasses = isRio
+      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+      : isArco
+      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+      : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20';
+
     return (
       <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border whitespace-nowrap ${
-          isRio
-            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-            : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
-        }`}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border whitespace-nowrap ${colorClasses}`}
       >
         <Globe className="h-3 w-3 shrink-0" />
         <span>{name}</span>

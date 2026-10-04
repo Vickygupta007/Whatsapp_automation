@@ -16,25 +16,27 @@ export class RecentOrdersSessionService {
   private static sessions = new Map<string, CustomerOrderSession>();
   private static readonly DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
-  private static normalizePhone(phone: string): string {
-    return phone.replace(/\D/g, '').slice(-10);
+  private static getSessionKey(phone: string, storeId?: string): string {
+    const p = phone.replace(/\D/g, '').slice(-10);
+    return `${storeId || 'default'}:${p}`;
   }
 
   public static setRecentOrders(
     phone: string,
     orders: SessionOrder[],
+    storeId?: string,
     ttlMs: number = this.DEFAULT_TTL_MS
   ): void {
-    const key = this.normalizePhone(phone);
+    const key = this.getSessionKey(phone, storeId);
     this.sessions.set(key, {
       orders,
       expiresAt: Date.now() + ttlMs,
     });
-    logger.info(`[RecentOrdersSessionService] Cached ${orders.length} orders for phone: ${key}`);
+    logger.info(`[RecentOrdersSessionService] Cached ${orders.length} orders for key: ${key}`);
   }
 
-  public static getRecentOrders(phone: string): SessionOrder[] | null {
-    const key = this.normalizePhone(phone);
+  public static getRecentOrders(phone: string, storeId?: string): SessionOrder[] | null {
+    const key = this.getSessionKey(phone, storeId);
     const session = this.sessions.get(key);
     if (!session) return null;
 
@@ -46,8 +48,8 @@ export class RecentOrdersSessionService {
     return session.orders;
   }
 
-  public static getOrderByIndex(phone: string, index: number): string | null {
-    const orders = this.getRecentOrders(phone);
+  public static getOrderByIndex(phone: string, index: number, storeId?: string): string | null {
+    const orders = this.getRecentOrders(phone, storeId);
     if (!orders || orders.length === 0) return null;
 
     const zeroBased = index - 1;
@@ -58,12 +60,12 @@ export class RecentOrdersSessionService {
     return null;
   }
 
-  public static hasActiveSession(phone: string): boolean {
-    return this.getRecentOrders(phone) !== null;
+  public static hasActiveSession(phone: string, storeId?: string): boolean {
+    return this.getRecentOrders(phone, storeId) !== null;
   }
 
-  public static clearSession(phone: string): void {
-    const key = this.normalizePhone(phone);
+  public static clearSession(phone: string, storeId?: string): void {
+    const key = this.getSessionKey(phone, storeId);
     this.sessions.delete(key);
   }
 

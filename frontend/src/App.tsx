@@ -10,6 +10,7 @@ import {
   AdminMetrics,
   MessageDetailsResponse,
   ProcessingStatus,
+  StoreInfo,
   StoredMessage,
   StoredOrder,
 } from './types';
@@ -19,6 +20,10 @@ export function App() {
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [orders, setOrders] = useState<StoredOrder[]>([]);
+  const [stores, setStores] = useState<StoreInfo[]>([
+    { id: 'rio', name: 'Rio Optical' },
+    { id: 'arco', name: 'ARCO optics' },
+  ]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedMessageDetails, setSelectedMessageDetails] = useState<MessageDetailsResponse | null>(null);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
@@ -27,15 +32,17 @@ export function App() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [m, msgList, ordList] = await Promise.all([
+      const [m, msgList, ordList, storeList] = await Promise.all([
         api.getMetrics().catch(() => null),
         api.getMessages(50, 0, selectedStatus).catch(() => ({ items: [], total: 0 })),
         api.getOrders(50, 0).catch(() => ({ items: [], total: 0 })),
+        api.getStores().catch(() => []),
       ]);
 
       if (m) setMetrics(m);
       if (msgList) setMessages(msgList.items);
       if (ordList) setOrders(ordList.items);
+      if (storeList && storeList.length > 0) setStores(storeList);
     } catch (err) {
       console.error('Error refreshing admin dashboard data:', err);
     } finally {
@@ -78,6 +85,7 @@ export function App() {
           <DashboardPage
             metrics={metrics}
             recentMessages={messages}
+            stores={stores}
             isLoading={isLoading}
             onRefresh={loadData}
             onSelectMessage={handleSelectMessage}
@@ -88,6 +96,7 @@ export function App() {
         {currentTab === 'messages' && (
           <MessagesPage
             messages={messages}
+            stores={stores}
             isLoading={isLoading}
             onRefresh={loadData}
             onSelectMessage={handleSelectMessage}

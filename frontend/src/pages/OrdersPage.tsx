@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, ExternalLink, PackageCheck, RefreshCw, Search } from 'lucide-react';
+import { Clock, ExternalLink, Globe, PackageCheck, RefreshCw, Search } from 'lucide-react';
 import { StoredOrder } from '../types';
 
 interface OrdersPageProps {
@@ -17,14 +17,37 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
+  const getWebsiteBadge = (website?: string | null) => {
+    const name = website || 'Store / Website';
+    const lower = name.toLowerCase();
+    const isRio = lower.includes('rio');
+    const isArco = lower.includes('arco');
+    const colorClasses = isRio
+      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+      : isArco
+      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+      : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20';
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border whitespace-nowrap ${colorClasses}`}
+      >
+        <Globe className="h-3 w-3 shrink-0" />
+        <span>{name}</span>
+      </span>
+    );
+  };
+
   const filteredOrders = orders.filter((ord) => {
     const term = searchTerm.toLowerCase();
+    const website = (ord.website || '').toLowerCase();
     return (
       (ord.erpOrderId && ord.erpOrderId.toLowerCase().includes(term)) ||
       (ord.customerRefNo && ord.customerRefNo.toLowerCase().includes(term)) ||
       (ord.product && ord.product.toLowerCase().includes(term)) ||
       ord.phone.toLowerCase().includes(term) ||
-      (ord.lensType && ord.lensType.toLowerCase().includes(term))
+      (ord.lensType && ord.lensType.toLowerCase().includes(term)) ||
+      website.includes(term)
     );
   });
 
@@ -74,6 +97,7 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold bg-slate-900/40">
                   <th className="py-3.5 pl-4">Created</th>
+                  <th className="py-3.5 px-2">Website</th>
                   <th className="py-3.5">Order ID</th>
                   <th className="py-3.5">Customer / Ref</th>
                   <th className="py-3.5">Phone</th>
@@ -97,6 +121,9 @@ export const OrdersPage: React.FC<OrdersPageProps> = ({
                         <Clock className="h-3 w-3 text-slate-500" />
                         <span>{new Date(ord.createdAt).toLocaleTimeString()}</span>
                       </span>
+                    </td>
+                    <td className="py-3.5 px-2 whitespace-nowrap">
+                      {getWebsiteBadge(ord.website)}
                     </td>
                     <td className="py-3.5 font-mono text-emerald-400 font-bold whitespace-nowrap">
                       <span className="flex items-center space-x-1">
