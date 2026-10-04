@@ -4,7 +4,7 @@ services:
   - type: web
     name: whatsapp-rio-erp-automation
     env: node
-    plan: starter
+    plan: free
     region: oregon
     buildCommand: npm install && npm run build
     startCommand: npm run start
@@ -24,11 +24,11 @@ services:
           name: whatsapp-erp-db
           property: connectionString
       - key: WHATSAPP_VERIFY_TOKEN
-        generateValue: true
+        value: "rio_erp_verify_2026"
       - key: WHATSAPP_ACCESS_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
-        sync: false
+        value: "1327525300446181"
       - key: GEMINI_API_KEY
         sync: false
       - key: RIO_ERP_BASE_URL
@@ -36,13 +36,13 @@ services:
       - key: RIO_ERP_API_KEY
         value: "rio_whatsapp_secret_key_2026"
       - key: RIO_ERP_USE_MOCK
-        value: "true"
+        value: "false"
       - key: WHATSAPP_USE_MOCK
         value: "false"
 
 databases:
   - name: whatsapp-erp-db
-    plan: starter
+    plan: free
     databaseName: whatsapp_rio_erp
     user: erp_admin
     region: oregon
