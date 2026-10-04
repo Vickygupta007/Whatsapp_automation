@@ -1,5 +1,22 @@
 [
   {
+    "id": "rio",
+    "name": "Rio Optical",
+    "whatsappPhoneNumberId": "1327525300446181",
+    "whatsappDisplayPhone": "Rio WhatsApp",
+    "whatsappWabaId": "1778348136538191",
+    "whatsappAppId": "1611376953963298",
+    "whatsappVerifyToken": "rio_erp_verify_2026",
+    "whatsappAccessToken": "EAAW5ie7wsyIBSnnkdE4Rmv9K0MdDgKCZAfTEwq078vI0aTtgU8jdyGhye91SShj9RkxPxxOX4ZCFJzBgo1n8JcXUKIZCvgDUiKEPZAI2wZAYuKuHm2fCE4TnefqZBUCBZCuMK0nQC2Bq6T5p6zZCdSCfukrmsqsj5uDo7nSZAP6X3uH4xTORqpJGB5ypZCZCDnNswZDZD",
+    "erp": {
+      "type": "rio-erp",
+      "baseUrl": "http://200.234.35.179:3000",
+      "apiKey": "rio_whatsapp_secret_key_2026",
+      "authType": "api-key",
+      "useMock": false
+    }
+  },
+  {
     "id": "arco",
     "name": "ARCO optics",
     "whatsappPhoneNumberId": "1273435872528900",
