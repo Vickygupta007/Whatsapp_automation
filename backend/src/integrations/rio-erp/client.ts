@@ -534,6 +534,7 @@ export class LiveRioErpClient implements IRioErpClient {
         brandName: targetBrand,
         product: targetProduct,
         productName: targetProduct,
+        lensName: targetProduct,
         rxType: targetRxType,
         coating: targetCoating,
         coatingType: targetCoating,
