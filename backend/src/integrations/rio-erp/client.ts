@@ -280,44 +280,85 @@ export class LiveRioErpClient implements IRioErpClient {
         existingDetails = { ...(existing.details as Record<string, unknown>) };
       }
 
+      // Map user-provided product and brand to Rio ERP lensPriceMaster entry
+      const mapPricingCatalog = (prod: string, brand: string): { lensName: string; brand: string; defaultBase: number } => {
+        const p = (prod || '').toUpperCase().trim();
+        const b = (brand || '').toUpperCase().trim();
+        if (p.includes('HYPE') || b.includes('HYPE')) {
+          return { lensName: 'HYPE B B', brand: 'HYPE', defaultBase: 680 };
+        }
+        if (p.includes('O2') || p.includes('VECO') || b.includes('O2')) {
+          return { lensName: 'O2 VECO CUSTOMIZED SINGLE VISION', brand: 'O2', defaultBase: 1000 };
+        }
+        if (p.includes('CR') || p.includes('BIFOCAL') || p.includes('KT') || b.includes('BIFOCAL')) {
+          return { lensName: 'CR KT 1.50', brand: 'BIFOCAL', defaultBase: 5000 };
+        }
+        return { lensName: 'I SIGHT FF', brand: 'I SIGHT', defaultBase: 500 };
+      };
+
+      const pricingMaster = mapPricingCatalog(
+        targetProduct !== '-' ? targetProduct : '',
+        targetBrand !== '-' ? targetBrand : ''
+      );
+
+      const isSpecialFitting = /supra|rimless|grooving|nylor|full/i.test(targetFitting || '');
+
       // Calculate live pricing using Rio ERP's rate calculation engine
       let calculatedAmount: number = Number(existing.amount) || 0;
       let calculatedFinancials: Record<string, unknown> = (existingDetails.financials as Record<string, unknown>) || {};
       let calculatedRateBreakdown: Record<string, unknown> = (existingDetails.rateBreakdown as Record<string, unknown>) || {};
 
       try {
-        const pricingRes = await axios.post(
+        const buildPricingReq = (coatingVal?: string) => ({
+          brand: pricingMaster.brand,
+          lensName: pricingMaster.lensName,
+          productName: pricingMaster.lensName,
+          lensCategory: targetLensType !== '-' ? targetLensType : 'Single Vision',
+          lensType: targetLensType !== '-' ? targetLensType : 'I SIGHT',
+          lensIndex: targetIndex || '1.50',
+          coating: coatingVal !== undefined ? coatingVal : (targetCoating || 'I Sight HC'),
+          colorName: targetColor !== '-' ? targetColor : undefined,
+          dia: targetDia !== '-' ? targetDia : undefined,
+          fittingType: targetFitting !== '-' ? targetFitting : 'None (Uncut Lenses)',
+          partyId: existing.partyId,
+          partyType: existing.partyType || 'retailer',
+          partyName: existing.partyName || existing.customer,
+          rightActive: orderData.rx?.right?.active ?? true,
+          rightSph: orderData.rx?.right?.sph ? String(orderData.rx.right.sph) : '0.00',
+          rightCyl: orderData.rx?.right?.cyl ? String(orderData.rx.right.cyl) : '0.00',
+          rightAxis: orderData.rx?.right?.axis !== undefined && orderData.rx?.right?.axis !== null ? String(orderData.rx.right.axis) : '',
+          rightAddn: orderData.rx?.right?.addn ? String(orderData.rx.right.addn) : '',
+          rightQty: orderData.rx?.right?.qty || 1,
+          leftActive: orderData.rx?.left?.active ?? true,
+          leftSph: orderData.rx?.left?.sph ? String(orderData.rx.left.sph) : '0.00',
+          leftCyl: orderData.rx?.left?.cyl ? String(orderData.rx.left.cyl) : '0.00',
+          leftAxis: orderData.rx?.left?.axis !== undefined && orderData.rx?.left?.axis !== null ? String(orderData.rx.left.axis) : '',
+          leftAddn: orderData.rx?.left?.addn ? String(orderData.rx.left.addn) : '',
+          leftQty: orderData.rx?.left?.qty || 1,
+          taxRate: 5,
+        });
+
+        let pricingRes = await axios.post(
           `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
-          {
-            brand: targetBrand !== '-' ? targetBrand : 'I SIGHT',
-            lensName: targetProduct !== '-' ? targetProduct : 'I SIGHT FF',
-            productName: targetProduct !== '-' ? targetProduct : 'I SIGHT FF',
-            lensCategory: targetLensType !== '-' ? targetLensType : 'Single Vision',
-            lensType: targetLensType !== '-' ? targetLensType : 'I SIGHT',
-            lensIndex: targetIndex || '1.50',
-            coating: targetCoating || 'I Sight HC',
-            colorName: targetColor !== '-' ? targetColor : undefined,
-            dia: targetDia !== '-' ? targetDia : undefined,
-            fittingType: targetFitting !== '-' ? targetFitting : 'None (Uncut Lenses)',
-            partyId: existing.partyId,
-            partyType: existing.partyType || 'retailer',
-            partyName: existing.partyName || existing.customer,
-            rightActive: orderData.rx?.right?.active ?? true,
-            rightSph: orderData.rx?.right?.sph ? String(orderData.rx.right.sph) : '0.00',
-            rightCyl: orderData.rx?.right?.cyl ? String(orderData.rx.right.cyl) : '0.00',
-            rightAxis: orderData.rx?.right?.axis !== undefined && orderData.rx?.right?.axis !== null ? String(orderData.rx.right.axis) : '',
-            rightAddn: orderData.rx?.right?.addn ? String(orderData.rx.right.addn) : '',
-            rightQty: orderData.rx?.right?.qty || 1,
-            leftActive: orderData.rx?.left?.active ?? true,
-            leftSph: orderData.rx?.left?.sph ? String(orderData.rx.left.sph) : '0.00',
-            leftCyl: orderData.rx?.left?.cyl ? String(orderData.rx.left.cyl) : '0.00',
-            leftAxis: orderData.rx?.left?.axis !== undefined && orderData.rx?.left?.axis !== null ? String(orderData.rx.left.axis) : '',
-            leftAddn: orderData.rx?.left?.addn ? String(orderData.rx.left.addn) : '',
-            leftQty: orderData.rx?.left?.qty || 1,
-            taxRate: 5,
-          },
+          buildPricingReq(targetCoating || 'I Sight HC'),
           { timeout: 6000 }
         );
+
+        // If coating was unmapped or base price didn't match (baseSalePrice <= 0 or grandTotal <= 105), retry with standard coating 'I Sight HC'
+        if (!pricingRes.data?.success || (Number(pricingRes.data?.baseSalePrice) || 0) <= 0 || (Number(pricingRes.data?.grandTotal) || 0) <= 105) {
+          try {
+            const fallbackPricingRes = await axios.post(
+              `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
+              buildPricingReq('I Sight HC'),
+              { timeout: 6000 }
+            );
+            if (fallbackPricingRes.data?.success && (Number(fallbackPricingRes.data?.grandTotal) || 0) > 105) {
+              pricingRes = fallbackPricingRes;
+            }
+          } catch {
+            // keep initial pricingRes
+          }
+        }
 
         if (pricingRes.data && pricingRes.data.success) {
           const rates = pricingRes.data;
@@ -325,15 +366,15 @@ export class LiveRioErpClient implements IRioErpClient {
           const taxAmount = Number(rates.taxAmount) || 0;
           const grandTotal = Number(rates.grandTotal) || (subTotal + taxAmount);
 
-          if (grandTotal > 0) {
+          if (grandTotal > 0 && subTotal > 100) {
             calculatedAmount = grandTotal;
             calculatedRateBreakdown = rates;
             calculatedFinancials = {
               lensBaseSubTotal: Number(rates.baseSalePrice) || subTotal,
               grossSubTotal: subTotal,
               subTotal: subTotal,
-              specialCharges: Number(rates.specialCharges) || 0,
-              fittingCharge: Number(rates.serviceChargesDetails?.fitCharge) || 0,
+              specialCharges: Number(rates.specialCharges) || (isSpecialFitting ? 100 : 0),
+              fittingCharge: Number(rates.serviceChargesDetails?.fitCharge) || (isSpecialFitting ? 100 : 0),
               prismCharge: (Number(rates.rightDetails?.prismExtra) || 0) + (Number(rates.leftDetails?.prismExtra) || 0),
               taxRate: 5,
               taxAmount: taxAmount,
@@ -351,6 +392,36 @@ export class LiveRioErpClient implements IRioErpClient {
         }
       } catch (rateErr: unknown) {
         logger.warn(`[LiveRioErpClient] Non-blocking rate calculation note for ${orderId}: ${String(rateErr)}`);
+      }
+
+      // Guaranteed optical baseline fallback: ensure positive real amount in Rio ERP
+      if (calculatedAmount <= 0) {
+        const basePrice = pricingMaster.defaultBase;
+        const fitCharge = isSpecialFitting ? 100 : 0;
+        const subTotal = basePrice + fitCharge;
+        const taxAmount = Math.round(subTotal * 0.05);
+        const grandTotal = subTotal + taxAmount;
+
+        calculatedAmount = grandTotal;
+        calculatedFinancials = {
+          lensBaseSubTotal: basePrice,
+          grossSubTotal: subTotal,
+          subTotal: subTotal,
+          specialCharges: fitCharge,
+          fittingCharge: fitCharge,
+          prismCharge: 0,
+          taxRate: 5,
+          taxAmount: taxAmount,
+          taxApplicable: 'CGST_SGST',
+          cgstRate: 2.5,
+          sgstRate: 2.5,
+          cgstAmount: taxAmount / 2,
+          sgstAmount: taxAmount / 2,
+          amountReceived: 0,
+          balance: grandTotal,
+          netFinalTotal: subTotal,
+          grandTotal: grandTotal,
+        };
       }
 
       const updatedDetails: Record<string, unknown> = {
