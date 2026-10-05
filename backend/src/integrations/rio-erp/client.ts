@@ -359,7 +359,7 @@ export class LiveRioErpClient implements IRioErpClient {
           lensCategory: targetCategory,
           lensType: targetLensType !== '-' ? targetLensType : 'Single Vision',
           lensIndex: targetIndex || '1.50',
-          coating: targetCoating || 'ARC',
+          coating: targetCoating || '',
           colorName: targetColor !== '-' ? targetColor : undefined,
           dia: targetDia !== '-' ? targetDia : undefined,
           tintingName: targetTinting || undefined,
@@ -384,11 +384,37 @@ export class LiveRioErpClient implements IRioErpClient {
           taxRate: 5,
         };
 
-        const pricingRes = await axios.post(
+        let pricingRes = await axios.post(
           `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
           pricingReq,
           { timeout: 6000 }
         );
+
+        // If a specific coating like 'ARC' caused 0 baseSalePrice match in lensPriceMaster,
+        // retry with empty coating so Rio matches the product's base price from the catalog
+        if (
+          pricingRes.data &&
+          pricingRes.data.success &&
+          (Number(pricingRes.data.baseSalePrice) || 0) === 0 &&
+          pricingReq.coating
+        ) {
+          try {
+            const fallbackRes = await axios.post(
+              `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
+              { ...pricingReq, coating: '' },
+              { timeout: 6000 }
+            );
+            if (
+              fallbackRes.data &&
+              fallbackRes.data.success &&
+              (Number(fallbackRes.data.baseSalePrice) || 0) > 0
+            ) {
+              pricingRes = fallbackRes;
+            }
+          } catch {
+            // Keep original pricing response if fallback fails
+          }
+        }
 
         if (pricingRes.data && pricingRes.data.success) {
           const rates = pricingRes.data;
@@ -402,6 +428,7 @@ export class LiveRioErpClient implements IRioErpClient {
             calculatedRateBreakdown = rates;
             calculatedFinancials = {
               lensBaseSubTotal: Number(rates.baseSalePrice) || subTotal,
+              lensBasePrice: Number(rates.baseSalePrice) || subTotal,
               grossSubTotal: subTotal,
               subTotal: subTotal,
               specialCharges: Number(rates.serviceChargesDetails?.totalSpecialCharges) || Number(rates.specialCharges) || 0,
@@ -474,7 +501,14 @@ export class LiveRioErpClient implements IRioErpClient {
         grandTotal: calculatedAmount > 0 ? calculatedAmount : existing.grandTotal,
         financials: calculatedFinancials,
         rateBreakdown: calculatedRateBreakdown,
+        basePrice: Number(calculatedRateBreakdown.baseSalePrice) || 0,
+        lensBasePrice: Number(calculatedRateBreakdown.baseSalePrice) || 0,
+        rightRate: Number(calculatedRateBreakdown.rightRate) || 0,
+        leftRate: Number(calculatedRateBreakdown.leftRate) || 0,
       };
+
+      const finalRightRate = Number(calculatedRateBreakdown.rightRate) || 0;
+      const finalLeftRate = Number(calculatedRateBreakdown.leftRate) || 0;
 
       if (updatedDetails.right && typeof updatedDetails.right === 'object') {
         const r = { ...(updatedDetails.right as Record<string, unknown>) };
@@ -484,6 +518,7 @@ export class LiveRioErpClient implements IRioErpClient {
         r.addn = rAddn;
         r.prism = rPrism;
         r.qty = rQty;
+        r.rate = finalRightRate > 0 ? finalRightRate : r.rate;
         r.corridor = rCorridor;
         r.etCtType = rEtCtType;
         r.etCtVal = rEtCtVal;
@@ -507,6 +542,7 @@ export class LiveRioErpClient implements IRioErpClient {
         l.addn = lAddn;
         l.prism = lPrism;
         l.qty = lQty;
+        l.rate = finalLeftRate > 0 ? finalLeftRate : l.rate;
         l.corridor = lCorridor;
         l.etCtType = lEtCtType;
         l.etCtVal = lEtCtVal;
@@ -568,11 +604,15 @@ export class LiveRioErpClient implements IRioErpClient {
         rightAxis: rAxis,
         rightAddn: rAddn,
         rightQty: rQty,
+        rightRate: finalRightRate,
         leftSph: lSph,
         leftCyl: lCyl,
         leftAxis: lAxis,
         leftAddn: lAddn,
         leftQty: lQty,
+        leftRate: finalLeftRate,
+        basePrice: Number(calculatedRateBreakdown.baseSalePrice) || 0,
+        lensBasePrice: Number(calculatedRateBreakdown.baseSalePrice) || 0,
         amount: calculatedAmount > 0 ? calculatedAmount : existing.amount,
         grandTotal: calculatedAmount > 0 ? calculatedAmount : existing.grandTotal,
         subTotal: (calculatedFinancials as any)?.subTotal || existing.subTotal,
