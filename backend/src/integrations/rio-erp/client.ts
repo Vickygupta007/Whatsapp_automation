@@ -394,11 +394,15 @@ export class LiveRioErpClient implements IRioErpClient {
         logger.warn(`[LiveRioErpClient] Non-blocking rate calculation note for ${orderId}: ${String(rateErr)}`);
       }
 
+      const isMirrorCoating = /mirror/i.test(targetCoating || '');
+      const mirrorCharge = isMirrorCoating ? 500 : 0;
+
       // Guaranteed optical baseline fallback: ensure positive real amount in Rio ERP
-      if (calculatedAmount <= 0) {
+      if (calculatedAmount <= 0 || (isMirrorCoating && (calculatedFinancials.specialCharges as number || 0) < 500)) {
         const basePrice = pricingMaster.defaultBase;
         const fitCharge = isSpecialFitting ? 100 : 0;
-        const subTotal = basePrice + fitCharge;
+        const totalSpecial = (Number(calculatedFinancials.specialCharges) || fitCharge) + (isMirrorCoating && !(Number(calculatedFinancials.specialCharges) >= 500) ? mirrorCharge : 0);
+        const subTotal = basePrice + totalSpecial;
         const taxAmount = Math.round(subTotal * 0.05);
         const grandTotal = subTotal + taxAmount;
 
@@ -407,7 +411,7 @@ export class LiveRioErpClient implements IRioErpClient {
           lensBaseSubTotal: basePrice,
           grossSubTotal: subTotal,
           subTotal: subTotal,
-          specialCharges: fitCharge,
+          specialCharges: totalSpecial,
           fittingCharge: fitCharge,
           prismCharge: 0,
           taxRate: 5,

@@ -352,6 +352,10 @@ export class OrderParser {
           return item.normalized;
         }
       }
+      const cleaned = this.cleanFieldValue(cleanedLine);
+      if (cleaned && !this.isReservedKeyword(cleaned)) {
+        return cleaned;
+      }
     }
 
     for (const item of COATINGS) {

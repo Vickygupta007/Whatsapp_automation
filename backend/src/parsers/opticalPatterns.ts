@@ -36,6 +36,7 @@ export const COATINGS: { pattern: RegExp; normalized: string }[] = [
   { pattern: /\b(hmc|hard\s*multi\s*coat(?:ed)?)\b/i, normalized: 'HMC' },
   { pattern: /\b(shmc|super\s*hard\s*multi\s*coat(?:ed)?)\b/i, normalized: 'SHMC' },
   { pattern: /\b(photochromic|photogray|photobrown|transitions)\b/i, normalized: 'PHOTOCHROMIC' },
+  { pattern: /\b(blue\s*mirror|silver\s*mirror|gold\s*mirror|green\s*mirror|mirror)\b/i, normalized: 'BLUE MIRROR' },
   { pattern: /\b(hydrophobic|super\s*hydrophobic)\b/i, normalized: 'HYDROPHOBIC' },
 ];
 
