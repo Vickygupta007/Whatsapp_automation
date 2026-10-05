@@ -224,6 +224,11 @@ export class LiveRioErpClient implements IRioErpClient {
         orderData.fit ||
         (orderData.details as Record<string, unknown> | undefined)?.fitting
       );
+      const rawTinting = orderData.tintingName || orderData.tinting;
+      const targetTinting = (rawTinting && cleanOrDash(rawTinting) !== '-')
+        ? cleanOrDash(rawTinting)
+        : null;
+
       const targetRemarks = getValidRemark(
         orderData.remarks ||
         orderData.remark ||
@@ -234,40 +239,80 @@ export class LiveRioErpClient implements IRioErpClient {
         (orderData.details as Record<string, unknown> | undefined)?.remarks ||
         (orderData.details as Record<string, unknown> | undefined)?.remark
       );
-      // Product & Brand: Only use user-entered product; do not fallback to existing.product (which Rio ERP defaults to 'I SIGHT')
-      const hasExplicitProduct = (orderData as any).hasExplicitProduct ?? (
-        !!orderData.product && orderData.product !== 'I SIGHT' && !orderData.product.endsWith(' Lens')
-      );
-      const rawProduct = hasExplicitProduct ? (orderData.product || orderData.productName) : null;
+
+      // Product & Brand: Only use user-entered product/brand; do not silently replace
+      const rawProduct = orderData.product || orderData.productName;
       const targetProduct = (rawProduct && cleanOrDash(rawProduct) !== '-')
         ? cleanOrDash(rawProduct)
-        : '-';
+        : (cleanOrDash(existing.product) !== '-' ? existing.product : 'I SIGHT FF');
 
-      const rawBrand = hasExplicitProduct ? (orderData.brand || orderData.brandName || rawProduct) : null;
+      const rawBrand = orderData.brand || orderData.brandName;
       const targetBrand = (rawBrand && cleanOrDash(rawBrand) !== '-')
         ? cleanOrDash(rawBrand)
-        : '-';
+        : (cleanOrDash(existing.brand) !== '-' ? existing.brand : 'I SIGHT');
 
-      // Coating: Only use user-entered coating; do not fallback to existing.coating (which Rio ERP defaults to 'ARC')
-      // If omitted, pass null so Rio ERP updates coating to 'Uncote' (Uncoated) instead of defaulting to 'ARC'
+      const rawRxType = orderData.rxType;
+      const targetRxType = (rawRxType && cleanOrDash(rawRxType) !== '-')
+        ? cleanOrDash(rawRxType)
+        : 'Prescription';
+
+      // Coating: Only use user-entered coating; if omitted, pass null
       const rawCoating = orderData.coating || orderData.coatingName;
       const targetCoating = (rawCoating && cleanOrDash(rawCoating) !== '-')
         ? cleanOrDash(rawCoating)
         : null;
 
-      // Index: Only use user-entered index; if omitted, MUST be null (NOT '-') so Rio ERP does not reject with 400 Bad Request
-      const rawIndex = orderData.index || orderData.indexKey;
+      // Index: Only use user-entered index; if omitted, pass null
+      const rawIndex = orderData.index || orderData.indexKey || orderData.lensIndex;
       const targetIndex = (rawIndex && cleanOrDash(rawIndex) !== '-')
         ? cleanOrDash(rawIndex)
         : null;
 
-      // Lens Type: Only use user-entered lensType; do not fallback to existing.lensType (which Rio ERP defaults to 'Single Vision')
-      const rawLensType = orderData.lensType || orderData.lensCategory || (orderData as any).type;
+      // Lens Type: Only use user-entered lensType; do not silently replace
+      const rawLensType = orderData.lensType || (orderData as any).type;
       const targetLensType = (rawLensType && cleanOrDash(rawLensType) !== '-')
         ? cleanOrDash(rawLensType)
         : '-';
 
+      // Lens Category
+      const rawCategory = orderData.lensCategory || orderData.category;
+      const targetCategory = (rawCategory && cleanOrDash(rawCategory) !== '-')
+        ? cleanOrDash(rawCategory)
+        : (targetLensType !== '-' ? targetLensType : 'Single Vision');
+
       const targetCustomerRefNo = cleanOrDash(orderData.customerRefNo || existing.customerRefNo);
+      const targetPartyName = orderData.partyName || existing.partyName || existing.customer;
+      const targetDiscount = orderData.discount ? Number(orderData.discount) || 0 : 0;
+
+      // Prescription parameters
+      const rSph = orderData.rx?.right?.sph ? String(orderData.rx.right.sph) : '0.00';
+      const rCyl = orderData.rx?.right?.cyl ? String(orderData.rx.right.cyl) : '0.00';
+      const rAxis = orderData.rx?.right?.axis !== undefined && orderData.rx?.right?.axis !== null ? String(orderData.rx.right.axis) : '';
+      const rAddn = orderData.rx?.right?.addn ? String(orderData.rx.right.addn) : '';
+      const rPrism = orderData.rx?.right?.prism ? parseFloat(String(orderData.rx.right.prism)) : 0;
+      const rQty = orderData.rx?.right?.qty || 1;
+      const rCorridor = (orderData.rx?.right as any)?.corridor || null;
+      const rEtCtType = (orderData.rx?.right as any)?.etCtType || null;
+      const rEtCtVal = (orderData.rx?.right as any)?.etCtVal || null;
+      const rMm = (orderData.rx?.right as any)?.mm || null;
+
+      const lSph = orderData.rx?.left?.sph ? String(orderData.rx.left.sph) : '0.00';
+      const lCyl = orderData.rx?.left?.cyl ? String(orderData.rx.left.cyl) : '0.00';
+      const lAxis = orderData.rx?.left?.axis !== undefined && orderData.rx?.left?.axis !== null ? String(orderData.rx.left.axis) : '';
+      const lAddn = orderData.rx?.left?.addn ? String(orderData.rx.left.addn) : '';
+      const lPrism = orderData.rx?.left?.prism ? parseFloat(String(orderData.rx.left.prism)) : 0;
+      const lQty = orderData.rx?.left?.qty || 1;
+      const lCorridor = (orderData.rx?.left as any)?.corridor || null;
+      const lEtCtType = (orderData.rx?.left as any)?.etCtType || null;
+      const lEtCtVal = (orderData.rx?.left as any)?.etCtVal || null;
+      const lMm = (orderData.rx?.left as any)?.mm || null;
+
+      // Surcharges & Color adjustments
+      const isPhotoBlue = /photo\s*blue/i.test(targetColor || '');
+      const isMirrorCoating = /mirror/i.test(targetCoating || '');
+      const isCustomColor = /custom|pink|cyan/i.test(targetColor || '') || isPhotoBlue || isMirrorCoating;
+      const colorCharge = (isPhotoBlue || isCustomColor || isMirrorCoating) ? 500 : 0;
+      const isSpecialFitting = /supra|rimless|grooving|nylor|full/i.test(targetFitting || '');
 
       let existingDetails: Record<string, unknown> = {};
       if (typeof existing.details === 'string') {
@@ -280,7 +325,7 @@ export class LiveRioErpClient implements IRioErpClient {
         existingDetails = { ...(existing.details as Record<string, unknown>) };
       }
 
-      // Map user-provided product and brand to Rio ERP lensPriceMaster entry
+      // Catalog base mapping fallback for Rio lensPriceMaster
       const mapPricingCatalog = (prod: string, brand: string): { lensName: string; brand: string; defaultBase: number } => {
         const p = (prod || '').toUpperCase().trim();
         const b = (brand || '').toUpperCase().trim();
@@ -301,55 +346,58 @@ export class LiveRioErpClient implements IRioErpClient {
         targetBrand !== '-' ? targetBrand : ''
       );
 
-      const isSpecialFitting = /supra|rimless|grooving|nylor|full/i.test(targetFitting || '');
-
-      // Calculate live pricing using Rio ERP's rate calculation engine
+      // Calculate live pricing using Rio ERP's actual rate calculation engine
       let calculatedAmount: number = Number(existing.amount) || 0;
       let calculatedFinancials: Record<string, unknown> = (existingDetails.financials as Record<string, unknown>) || {};
       let calculatedRateBreakdown: Record<string, unknown> = (existingDetails.rateBreakdown as Record<string, unknown>) || {};
 
       try {
-        const buildPricingReq = (coatingVal?: string) => ({
-          brand: pricingMaster.brand,
-          lensName: pricingMaster.lensName,
-          productName: pricingMaster.lensName,
-          lensCategory: targetLensType !== '-' ? targetLensType : 'Single Vision',
-          lensType: targetLensType !== '-' ? targetLensType : 'I SIGHT',
+        const buildPricingReq = (coatingVal?: string, lensNameVal?: string, brandVal?: string) => ({
+          brand: brandVal || (targetBrand !== '-' ? targetBrand : pricingMaster.brand),
+          lensName: lensNameVal || (targetProduct !== '-' ? targetProduct : pricingMaster.lensName),
+          productName: lensNameVal || (targetProduct !== '-' ? targetProduct : pricingMaster.lensName),
+          lensCategory: targetCategory,
+          lensType: targetLensType !== '-' ? targetLensType : 'Single Vision',
           lensIndex: targetIndex || '1.50',
-          coating: coatingVal !== undefined ? coatingVal : (targetCoating || 'I Sight HC'),
+          coating: coatingVal !== undefined ? coatingVal : (targetCoating || 'ARC'),
           colorName: targetColor !== '-' ? targetColor : undefined,
+          colorCharge: colorCharge > 0 ? colorCharge : undefined,
           dia: targetDia !== '-' ? targetDia : undefined,
+          tintingName: targetTinting || undefined,
           fittingType: targetFitting !== '-' ? targetFitting : 'None (Uncut Lenses)',
           partyId: existing.partyId,
           partyType: existing.partyType || 'retailer',
-          partyName: existing.partyName || existing.customer,
+          partyName: targetPartyName,
           rightActive: orderData.rx?.right?.active ?? true,
-          rightSph: orderData.rx?.right?.sph ? String(orderData.rx.right.sph) : '0.00',
-          rightCyl: orderData.rx?.right?.cyl ? String(orderData.rx.right.cyl) : '0.00',
-          rightAxis: orderData.rx?.right?.axis !== undefined && orderData.rx?.right?.axis !== null ? String(orderData.rx.right.axis) : '',
-          rightAddn: orderData.rx?.right?.addn ? String(orderData.rx.right.addn) : '',
-          rightQty: orderData.rx?.right?.qty || 1,
+          rightSph: rSph,
+          rightCyl: rCyl,
+          rightAxis: rAxis,
+          rightAddn: rAddn,
+          rightPrism: rPrism,
+          rightQty: rQty,
           leftActive: orderData.rx?.left?.active ?? true,
-          leftSph: orderData.rx?.left?.sph ? String(orderData.rx.left.sph) : '0.00',
-          leftCyl: orderData.rx?.left?.cyl ? String(orderData.rx.left.cyl) : '0.00',
-          leftAxis: orderData.rx?.left?.axis !== undefined && orderData.rx?.left?.axis !== null ? String(orderData.rx.left.axis) : '',
-          leftAddn: orderData.rx?.left?.addn ? String(orderData.rx.left.addn) : '',
-          leftQty: orderData.rx?.left?.qty || 1,
+          leftSph: lSph,
+          leftCyl: lCyl,
+          leftAxis: lAxis,
+          leftAddn: lAddn,
+          leftPrism: lPrism,
+          leftQty: lQty,
           taxRate: 5,
         });
 
+        // 1. First attempt: with user's exact coating and product
         let pricingRes = await axios.post(
           `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
-          buildPricingReq(targetCoating || 'I Sight HC'),
+          buildPricingReq(targetCoating || 'ARC'),
           { timeout: 6000 }
         );
 
-        // If coating was unmapped or base price didn't match (baseSalePrice <= 0 or grandTotal <= 105), retry with standard coating 'I Sight HC'
+        // 2. Second attempt: if base price was unmapped, query catalog master for base rate
         if (!pricingRes.data?.success || (Number(pricingRes.data?.baseSalePrice) || 0) <= 0 || (Number(pricingRes.data?.grandTotal) || 0) <= 105) {
           try {
             const fallbackPricingRes = await axios.post(
               `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
-              buildPricingReq('I Sight HC'),
+              buildPricingReq('I Sight HC', pricingMaster.lensName, pricingMaster.brand),
               { timeout: 6000 }
             );
             if (fallbackPricingRes.data?.success && (Number(fallbackPricingRes.data?.grandTotal) || 0) > 105) {
@@ -391,17 +439,16 @@ export class LiveRioErpClient implements IRioErpClient {
           }
         }
       } catch (rateErr: unknown) {
-        logger.warn(`[LiveRioErpClient] Non-blocking rate calculation note for ${orderId}: ${String(rateErr)}`);
+        logger.warn(`[LiveRioErpClient] Rate calculation note for ${orderId}: ${String(rateErr)}`);
       }
 
-      const isMirrorCoating = /mirror/i.test(targetCoating || '');
-      const mirrorCharge = isMirrorCoating ? 500 : 0;
-
-      // Guaranteed optical baseline fallback: ensure positive real amount in Rio ERP
-      if (calculatedAmount <= 0 || (isMirrorCoating && (calculatedFinancials.specialCharges as number || 0) < 500)) {
+      // Baseline fallback if rates are 0
+      if (calculatedAmount <= 0 || (colorCharge > 0 && (calculatedFinancials.specialCharges as number || 0) < colorCharge)) {
         const basePrice = pricingMaster.defaultBase;
         const fitCharge = isSpecialFitting ? 100 : 0;
-        const totalSpecial = (Number(calculatedFinancials.specialCharges) || fitCharge) + (isMirrorCoating && !(Number(calculatedFinancials.specialCharges) >= 500) ? mirrorCharge : 0);
+        const tintCharge = targetTinting ? 100 : 0;
+        const prismCharge = (rPrism > 0 ? rPrism * 200 : 0) + (lPrism > 0 ? lPrism * 200 : 0);
+        const totalSpecial = (Number(calculatedFinancials.specialCharges) || (fitCharge + tintCharge + prismCharge)) + (colorCharge > 0 && !(Number(calculatedFinancials.specialCharges) >= colorCharge) ? colorCharge : 0);
         const subTotal = basePrice + totalSpecial;
         const taxAmount = Math.round(subTotal * 0.05);
         const grandTotal = subTotal + taxAmount;
@@ -413,7 +460,7 @@ export class LiveRioErpClient implements IRioErpClient {
           subTotal: subTotal,
           specialCharges: totalSpecial,
           fittingCharge: fitCharge,
-          prismCharge: 0,
+          prismCharge: prismCharge,
           taxRate: 5,
           taxAmount: taxAmount,
           taxApplicable: 'CGST_SGST',
@@ -430,31 +477,41 @@ export class LiveRioErpClient implements IRioErpClient {
 
       const updatedDetails: Record<string, unknown> = {
         ...existingDetails,
-        color: targetColor,
-        colorName: targetColor,
-        tint: targetColor,
-        tintColor: targetColor,
-        dia: targetDia,
-        diameter: targetDia,
-        fitting: targetFitting,
-        fittingType: targetFitting,
-        fit: targetFitting,
-        frameType: targetFitting,
-        remarks: targetRemarks,
-        remark: targetRemarks,
-        specialRemark: targetRemarks,
-        specialRemarks: targetRemarks,
-        notes: targetRemarks,
-        note: targetRemarks,
+        partyName: targetPartyName,
+        customer: targetPartyName,
         brand: targetBrand,
+        brandName: targetBrand,
         product: targetProduct,
+        productName: targetProduct,
+        rxType: targetRxType,
+        category: targetCategory,
+        lensCategory: targetCategory,
+        lensType: targetLensType,
         coating: targetCoating,
         coatingType: targetCoating,
         coatingName: targetCoating,
         index: targetIndex,
         indexKey: targetIndex,
         lensIndex: targetIndex,
-        lensType: targetLensType,
+        color: targetColor,
+        colorName: targetColor,
+        tint: targetColor,
+        tintColor: targetColor,
+        tinting: targetTinting,
+        tintingName: targetTinting,
+        dia: targetDia,
+        diameter: targetDia,
+        fitting: targetFitting,
+        fittingType: targetFitting,
+        fit: targetFitting,
+        frameType: targetFitting,
+        discount: targetDiscount,
+        remarks: targetRemarks,
+        remark: targetRemarks,
+        specialRemark: targetRemarks,
+        specialRemarks: targetRemarks,
+        notes: targetRemarks,
+        note: targetRemarks,
         customerRefNo: targetCustomerRefNo,
         amount: calculatedAmount > 0 ? calculatedAmount : existing.amount,
         grandTotal: calculatedAmount > 0 ? calculatedAmount : existing.grandTotal,
@@ -464,6 +521,16 @@ export class LiveRioErpClient implements IRioErpClient {
 
       if (updatedDetails.right && typeof updatedDetails.right === 'object') {
         const r = { ...(updatedDetails.right as Record<string, unknown>) };
+        r.sph = rSph;
+        r.cyl = rCyl;
+        r.axis = rAxis;
+        r.addn = rAddn;
+        r.prism = rPrism;
+        r.qty = rQty;
+        r.corridor = rCorridor;
+        r.etCtType = rEtCtType;
+        r.etCtVal = rEtCtVal;
+        r.mm = rMm;
         r.dia = targetDia;
         r.color = targetColor;
         r.colorName = targetColor;
@@ -477,6 +544,16 @@ export class LiveRioErpClient implements IRioErpClient {
       }
       if (updatedDetails.left && typeof updatedDetails.left === 'object') {
         const l = { ...(updatedDetails.left as Record<string, unknown>) };
+        l.sph = lSph;
+        l.cyl = lCyl;
+        l.axis = lAxis;
+        l.addn = lAddn;
+        l.prism = lPrism;
+        l.qty = lQty;
+        l.corridor = lCorridor;
+        l.etCtType = lEtCtType;
+        l.etCtVal = lEtCtVal;
+        l.mm = lMm;
         l.dia = targetDia;
         l.color = targetColor;
         l.colorName = targetColor;
@@ -494,10 +571,13 @@ export class LiveRioErpClient implements IRioErpClient {
         id: existing.id,
         orderId: existing.orderId,
         orderNo: existing.orderId,
+        partyName: targetPartyName,
+        customer: targetPartyName,
         brand: targetBrand,
         brandName: targetBrand,
         product: targetProduct,
         productName: targetProduct,
+        rxType: targetRxType,
         coating: targetCoating,
         coatingType: targetCoating,
         coatingName: targetCoating,
@@ -505,8 +585,8 @@ export class LiveRioErpClient implements IRioErpClient {
         indexKey: targetIndex,
         lensIndex: targetIndex,
         lensType: targetLensType,
-        lensCategory: targetLensType,
-        category: targetLensType,
+        lensCategory: targetCategory,
+        category: targetCategory,
         type: targetLensType,
         customerRefNo: targetCustomerRefNo,
         custRefNo: targetCustomerRefNo,
@@ -514,14 +594,27 @@ export class LiveRioErpClient implements IRioErpClient {
         color: targetColor,
         colorName: targetColor,
         dia: targetDia,
+        tinting: targetTinting,
+        tintingName: targetTinting,
         fitting: targetFitting,
         fittingType: targetFitting,
+        discount: targetDiscount,
         remarks: targetRemarks,
         remark: targetRemarks,
         specialRemark: targetRemarks,
         specialRemarks: targetRemarks,
         notes: targetRemarks,
         note: targetRemarks,
+        rightSph: rSph,
+        rightCyl: rCyl,
+        rightAxis: rAxis,
+        rightAddn: rAddn,
+        rightQty: rQty,
+        leftSph: lSph,
+        leftCyl: lCyl,
+        leftAxis: lAxis,
+        leftAddn: lAddn,
+        leftQty: lQty,
         amount: calculatedAmount > 0 ? calculatedAmount : existing.amount,
         grandTotal: calculatedAmount > 0 ? calculatedAmount : existing.grandTotal,
         subTotal: (calculatedFinancials as any)?.subTotal || existing.subTotal,

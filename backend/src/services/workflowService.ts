@@ -4,6 +4,7 @@ import { RioErpMapper } from '../integrations/rio-erp/mappers.js';
 import { WhatsAppClient } from '../integrations/whatsapp/client.js';
 import { StoreRegistry } from '../config/stores.js';
 import { OrderParser } from '../parsers/orderParser.js';
+import { AUTO_REPLY_TEMPLATES } from '../types/classifier.js';
 import { ClassifierService, extractTargetOrderId } from './classifierService.js';
 import { ImageOcrService } from './imageOcrService.js';
 import { DeliveryTaskData, IRioErpClient } from '../types/erp.js';
@@ -424,11 +425,15 @@ We received your image, but the prescription numbers (Sphere, Cylinder, Axis) we
 
       // Handle UNREGISTERED_CUSTOMER: Store-branded registration notification
       if (classification.category === 'UNREGISTERED_CUSTOMER') {
-        replyText = `⚠️ *Account Not Registered*
+        if (store.id === 'rio') {
+          replyText = AUTO_REPLY_TEMPLATES.UNREGISTERED_CUSTOMER;
+        } else {
+          replyText = `⚠️ *Account Not Registered*
 
 Your WhatsApp number is not linked to an ${store.name} account.
 
 Please contact your ${store.name} coordinator to activate your account.`;
+        }
         classification.replyText = replyText;
       }
 
@@ -438,9 +443,10 @@ Please contact your ${store.name} coordinator to activate your account.`;
         const accountName = party?.name || customerName || store.name;
         const accountId = party?.accountId || '1001';
         const labName = party?.labName || `${store.name} Lab`;
+        const storeDisplayName = store.id === 'rio' ? 'Rio Digital Lenses' : store.name;
 
         replyText = `👋 Hello ${greetingName},
-Welcome to ${store.name} 👓
+Welcome to ${storeDisplayName} 👓
 🏢 Account: ${accountName} (${accountId})
 🏭 Assigned Lab: ${labName}
 How can we help you today?
@@ -482,48 +488,65 @@ How can we help you today?
         const rx = parsedOrder.order.rx;
         const r = rx?.right || {};
         const l = rx?.left || {};
+        const partyName = parsedOrder.order.partyName || party?.name;
+        const brand = parsedOrder.order.brand;
+        const rxType = parsedOrder.order.rxType;
         const product = parsedOrder.order.product;
-        const coating = parsedOrder.order.coating;
-        const index = parsedOrder.order.index;
+        const lensCategory = parsedOrder.order.lensCategory;
         const lensType = parsedOrder.order.lensType;
-        const ref = parsedOrder.order.customerRefNo;
-        const rightAdd = r.addn && r.addn !== '0.00' ? `\n• ADD: *${r.addn}*` : '';
-        const leftAdd = l.addn && l.addn !== '0.00' ? `\n• ADD: *${l.addn}*` : '';
+        const index = parsedOrder.order.index;
+        const coating = parsedOrder.order.coating;
+        const color = parsedOrder.order.colorName || parsedOrder.order.tintColor;
         const dia = parsedOrder.order.dia;
-        const tint = parsedOrder.order.tintColor;
+        const tinting = parsedOrder.order.tintingName;
         const fitting = parsedOrder.order.fittingType;
+        const discount = parsedOrder.order.discount;
         const remarks = parsedOrder.order.remarks;
-
-        const extraSpecsList = [
-          dia ? `• Dia: *${dia}*` : '',
-          tint && tint !== '__' ? `• Tint/Color: *${tint}*` : '',
-          fitting && fitting !== '__' ? `• Fitting: *${fitting}*` : '',
-          remarks && remarks !== '__' ? `• Remark: *${remarks}*` : '',
-        ].filter(Boolean).join('\n');
-        const extraSpecsSection = extraSpecsList ? `\n\n⚙️ *Specifications:*\n${extraSpecsList}` : '';
+        const ref = parsedOrder.order.customerRefNo;
 
         const orderInfoLines = [
-          ref ? `🔖 *Ref:* *${ref}*` : '',
-          product ? `📦 *Product:* *${product}*` : '',
-          lensType ? `📑 *Type:* *${lensType}*` : '',
-          index ? `🔢 *Index:* *${index}*` : '',
-          coating ? `✨ *Coating:* *${coating}*` : '',
+          partyName ? `• Party: *${partyName}*` : '',
+          ref ? `• *Ref:* *${ref}*` : '',
+          brand ? `• Brand: *${brand}*` : '',
+          rxType ? `• RX Type: *${rxType}*` : '',
+          product ? `• Product: *${product}*` : '',
+          lensCategory ? `• Category: *${lensCategory}*` : '',
+          lensType ? `• Type: *${lensType}*` : '',
+          index ? `• Index: *${index}*` : '',
+          coating ? `• Coating: *${coating}*` : '',
+          color ? `• Color: *${color}*` : '',
+          dia ? `• Dia: *${dia}*` : '',
+          tinting ? `• Tint/Color: *${tinting}*` : '',
+          fitting ? `• Fitting: *${fitting}*` : '',
+          discount !== null && discount !== undefined && discount !== '' ? `• Discount: *${discount}*` : '',
+          remarks ? `• Remark: *${remarks}*` : '',
         ].filter(Boolean).join('\n');
         const orderInfoSection = orderInfoLines ? `\n\n${orderInfoLines}` : '';
 
-        const verificationText = `👓 *VERIFY ORDER DETAILS*
+        const formatEyeLines = (eye: typeof r, label: string) => {
+          const lines = [
+            `👁️ *${label}*`,
+            `• SPH: *${eye.sph || '0.00'}*`,
+            `• CYL: *${eye.cyl || '0.00'}*`,
+            `• AXIS: *${eye.axis ?? 0}°*`,
+          ];
+          if (eye.addn && eye.addn !== '0.00') lines.push(`• ADD: *${eye.addn}*`);
+          if (eye.corridor) lines.push(`• CORRIDOR: *${eye.corridor}*`);
+          if (eye.etCtType || eye.etCtVal) lines.push(`• ET/CT: *${[eye.etCtType, eye.etCtVal].filter(Boolean).join(' ')}*`);
+          if (eye.mm) lines.push(`• MM: *${eye.mm}*`);
+          if (eye.prism) lines.push(`• PRISM: *${eye.prism}*`);
+          if (eye.qty && eye.qty > 1) lines.push(`• QTY: *${eye.qty}*`);
+          return lines.join('\n');
+        };
 
-Please verify your order details:${orderInfoSection}${extraSpecsSection}
+        const rightEyeText = formatEyeLines(r, 'Right Eye (OD)');
+        const leftEyeText = formatEyeLines(l, 'Left Eye (OS)');
 
-👁️ *Right Eye (OD)*
-• SPH: *${r.sph || '0.00'}*
-• CYL: *${r.cyl || '0.00'}*
-• AXIS: *${r.axis ?? 0}°*${rightAdd}
+        const verificationText = `👓 *VERIFY ORDER DETAILS*${orderInfoSection}
 
-👁️ *Left Eye (OS)*
-• SPH: *${l.sph || '0.00'}*
-• CYL: *${l.cyl || '0.00'}*
-• AXIS: *${l.axis ?? 0}°*${leftAdd}
+${rightEyeText}
+
+${leftEyeText}
 
 👇 Please tap *Confirm* or *Edit* below:`;
 
@@ -590,23 +613,29 @@ Please verify your order details:${orderInfoSection}${extraSpecsSection}
 
             PendingOrderService.removePendingOrder(phone);
 
-            const accountName = erpResponse.party?.name || pendingDraft.party?.name || party?.name || 'Customer';
+            const accountName = erpResponse.party?.name || pendingDraft.party?.name || party?.name || pendingDraft.order.partyName || 'Customer';
             const accountId = erpResponse.party?.accountId || pendingDraft.party?.accountId || party?.accountId || '100023';
             const labName = erpResponse.party?.labName || pendingDraft.party?.labName || party?.labName || `${store.name}-LAB`;
-            const displayProduct = erpOrderReq.product || pendingDraft.order.product || '';
+            const displayBrand = erpOrderReq.brand || pendingDraft.order.brand || '';
+            const displayProduct = erpOrderReq.product || pendingDraft.order.product || pendingDraft.order.productName || '';
+            const displayCategory = erpOrderReq.lensCategory || pendingDraft.order.lensCategory || '';
             const displayCoating = erpOrderReq.coating || pendingDraft.order.coating || '';
             const displayRef = erpOrderReq.customerRefNo || pendingDraft.order.customerRefNo || erpResponse.orderRef || '';
 
             const refDetailLine = displayRef ? `• Ref: *${displayRef}*\n` : '';
+            const brandDetailLine = displayBrand ? `• Brand: *${displayBrand}*\n` : '';
             const productDetailLine = displayProduct ? `• Product: *${displayProduct}*\n` : '';
+            const categoryDetailLine = displayCategory ? `• Category: *${displayCategory}*\n` : '';
             const typeDetailLine = pendingDraft.order.lensType ? `• Type: *${pendingDraft.order.lensType}*\n` : '';
             const indexDetailLine = pendingDraft.order.index ? `• Index: *${pendingDraft.order.index}*\n` : '';
             const coatingDetailLine = displayCoating ? `• Coating: *${displayCoating}*\n` : '';
 
             const extraLines = [
+              pendingDraft.order.colorName ? `• Color: *${pendingDraft.order.colorName}*` : '',
               pendingDraft.order.dia ? `• Dia: *${pendingDraft.order.dia}*` : '',
-              pendingDraft.order.tintColor ? `• Tint/Color: *${pendingDraft.order.tintColor}*` : '',
+              (pendingDraft.order.tintingName || pendingDraft.order.tintColor) ? `• Tint/Color: *${pendingDraft.order.tintingName || pendingDraft.order.tintColor}*` : '',
               pendingDraft.order.fittingType ? `• Fitting: *${pendingDraft.order.fittingType}*` : '',
+              pendingDraft.order.discount !== null && pendingDraft.order.discount !== undefined ? `• Discount: *${pendingDraft.order.discount}*` : '',
               pendingDraft.order.remarks ? `• Remark: *${pendingDraft.order.remarks}*` : '',
             ].filter(Boolean).join('\n');
 
@@ -623,7 +652,7 @@ Please verify your order details:${orderInfoSection}${extraSpecsSection}
 Order ID: *${erpResponse.orderId}*
 
 📋 *Order Details:*
-${refDetailLine}${productDetailLine}${typeDetailLine}${indexDetailLine}${coatingDetailLine}• Account: *${accountName}* (${accountId})
+${refDetailLine}${brandDetailLine}${productDetailLine}${categoryDetailLine}${typeDetailLine}${indexDetailLine}${coatingDetailLine}• Account: *${accountName}* (${accountId})
 • Lab: *${labName}*
 ${amountLine}${extraLines ? extraLines + '\n' : ''}
 🏭 Your order has been placed in ${storeDisplayName} ERP. Lab technicians are now preparing your lenses.
@@ -732,7 +761,7 @@ We could not find an active order with ID: *${targetOrderId}* in ${store.name}.
 Please check your Order ID or reply *STATUS* to see all your active orders.`;
             } else {
               const lookupId = localDbOrder?.erpOrderRef || targetOrderId;
-              const statusResult = await (activeErp.getOrderStatus as any)(lookupId, phone);
+              const statusResult = await activeErp.getOrderStatus(lookupId);
             await logStep('REPLY_SELECTION', 'SUCCESS', {
               action: 'ORDER_STATUS_LOOKUP',
               orderId: lookupId,
@@ -800,7 +829,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
               const lens = (ord.lensType || localDbOrder?.lensType) ? ` (${ord.lensType || localDbOrder?.lensType})` : '';
               const coating = realCoating ? ` (${realCoating})` : '';
               const ref = ord.customerRefNo || localDbOrder?.customerRefNo || 'N/A';
-              const liveStatus = ord.status || deliveryTask?.status || 'In Progress';
+              const liveStatus = deliveryTask?.status || ord.status || 'In Progress';
               const stage = ord.pendingAt || liveStatus;
 
               const displayOrderId =

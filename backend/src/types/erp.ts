@@ -41,6 +41,11 @@ export interface RioErpEyeRx {
   cyl?: number | string | null;
   axis?: number | string | null;
   addn?: number | string | null;
+  corridor?: string | null;
+  etCtType?: string | null;
+  etCtVal?: string | number | null;
+  mm?: string | number | null;
+  prism?: string | number | null;
   dia?: string | number | null;
   diameter?: string | number | null;
   qty?: number;
@@ -56,8 +61,10 @@ export interface RioErpRx {
 export interface RioErpOrderRequest {
   phone: string;
   customerRefNo: string | null;
+  partyName?: string | null;
   brand?: string | null;
   brandName?: string | null;
+  rxType?: string | null;
   product: string | null;
   productName?: string | null;
   hasExplicitProduct?: boolean;
@@ -85,6 +92,7 @@ export interface RioErpOrderRequest {
   fittingType?: string | null;
   fit?: string | null;
   frameType?: string | null;
+  discount?: string | number | null;
   remarks?: string | null;
   remark?: string | null;
   specialRemark?: string | null;

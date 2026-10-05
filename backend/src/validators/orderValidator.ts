@@ -45,11 +45,11 @@ export class OrderValidator {
     }
 
     // Check for lens index or product designation
-    if (!order.index && !order.product && !order.coating) {
+    if (!order.index && !order.product) {
       return {
         isValid: false,
-        reason: 'Missing lens material/index or coating specification.',
-        missingFields: ['Lens Index (e.g. 1.56, 1.60) or Coating'],
+        reason: 'Please provide the Lens Index (e.g. 1.50, 1.56, 1.60, 1.67) or Product Name.',
+        missingFields: ['Lens Index (e.g. 1.50, 1.56, 1.60, 1.67)'],
       };
     }
 

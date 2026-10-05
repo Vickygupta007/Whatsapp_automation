@@ -203,5 +203,122 @@ Remark: —`;
     expect(result.order.rx.left.sph).toBe('-1.50');
     expect(result.order.index).toBeNull();
   });
+
+  it('should parse full structured optical order format matching exact Rio fields', () => {
+    const raw = `ORDER
+
+Party: amk
+
+Brand: HYPE
+RX Type: Prescription
+Product: HYPE B B
+Lens Category: Single Vision
+Index: 1.56
+Lens Type: White
+Coating: ARC
+Color: PHOTO BLUE
+Dia: 70
+Tinting: G-15
+Fitting: Supra
+
+RIGHT EYE (OD)
+SPH: -1.00
+CYL: -0.50
+AXIS: 90
+ADD: +2.00
+CORRIDOR: 14
+ET/CT: ET
+MM: 2.0
+PRISM: 1.0
+QTY: 1
+
+LEFT EYE (OS)
+SPH: -1.25
+CYL: -0.75
+AXIS: 85
+ADD: +2.00
+CORRIDOR: 14
+ET/CT: ET
+MM: 2.0
+PRISM: 1.0
+QTY: 1
+
+Discount: 0
+Remark: Urgent`;
+
+    const result = OrderParser.parse(raw, dummyPhone);
+
+    expect(result.isOrder).toBe(true);
+    expect(result.order.partyName).toBe('amk');
+    expect(result.order.brand).toBe('HYPE');
+    expect(result.order.rxType).toBe('Prescription');
+    expect(result.order.product).toBe('HYPE B B');
+    expect(result.order.lensCategory).toBe('Single Vision');
+    expect(result.order.index).toBe('1.56');
+    expect(result.order.lensType).toBe('White');
+    expect(result.order.coating).toBe('ARC');
+    expect(result.order.colorName).toBe('PHOTO BLUE');
+    expect(result.order.dia).toBe('70');
+    expect(result.order.tintingName).toBe('G-15');
+    expect(result.order.fittingType).toBe('Supra');
+    expect(result.order.discount).toBe('0');
+    expect(result.order.remarks).toBe('Urgent');
+
+    // Right Eye (OD)
+    expect(result.order.rx.right.sph).toBe('-1.00');
+    expect(result.order.rx.right.cyl).toBe('-0.50');
+    expect(result.order.rx.right.axis).toBe(90);
+    expect(result.order.rx.right.addn).toBe('+2.00');
+    expect(result.order.rx.right.corridor).toBe('14');
+    expect(result.order.rx.right.etCtType).toBe('ET');
+    expect(result.order.rx.right.mm).toBe('2.0');
+    expect(result.order.rx.right.prism).toBe('1.0');
+    expect(result.order.rx.right.qty).toBe(1);
+
+    // Left Eye (OS)
+    expect(result.order.rx.left.sph).toBe('-1.25');
+    expect(result.order.rx.left.cyl).toBe('-0.75');
+    expect(result.order.rx.left.axis).toBe(85);
+    expect(result.order.rx.left.addn).toBe('+2.00');
+    expect(result.order.rx.left.corridor).toBe('14');
+    expect(result.order.rx.left.etCtType).toBe('ET');
+    expect(result.order.rx.left.mm).toBe('2.0');
+    expect(result.order.rx.left.prism).toBe('1.0');
+    expect(result.order.rx.left.qty).toBe(1);
+  });
+
+  it('should preserve exact values and keep omitted fields as null without injecting defaults', () => {
+    const raw = `ORDER
+Party: amk
+Product: I SIGHT FF
+Index: 1.56
+Coating: ARC
+Fitting: Supra
+Color: Blue
+
+RIGHT EYE (OD)
+SPH: -1.00
+
+LEFT EYE (OS)
+SPH: -1.00`;
+
+    const result = OrderParser.parse(raw, dummyPhone);
+
+    expect(result.isOrder).toBe(true);
+    expect(result.order.partyName).toBe('amk');
+    expect(result.order.product).toBe('I SIGHT FF');
+    expect(result.order.index).toBe('1.56');
+    expect(result.order.coating).toBe('ARC');
+    expect(result.order.fittingType).toBe('Supra');
+    expect(result.order.colorName).toBe('Blue');
+
+    // Strict non-defaulting verification:
+    expect(result.order.lensType).toBeNull(); // Must NOT default to 'White'
+    expect(result.order.dia).toBeNull(); // Must NOT default to 70 or 75
+    expect(result.order.tintingName).toBeNull(); // Must NOT default to G-15
+    expect(result.order.brand).toBeNull(); // Must NOT default
+    expect(result.order.remarks).toBeNull(); // Must NOT default
+  });
 });
+
 

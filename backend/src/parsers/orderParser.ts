@@ -8,6 +8,10 @@ export class OrderParser {
   public static parse(rawMessage: string, phone: string): ParsedOrderResult {
     const cleanMsg = (rawMessage || '').trim();
 
+    const partyName = this.extractPartyName(cleanMsg);
+    const brand = this.extractBrand(cleanMsg);
+    const rxType = this.extractRxType(cleanMsg);
+    const lensCategory = this.extractLensCategory(cleanMsg);
     const rx = this.extractRx(cleanMsg);
     const index = this.extractIndex(cleanMsg, rx);
     const lensType = this.extractLensType(cleanMsg);
@@ -15,12 +19,15 @@ export class OrderParser {
     const product = this.extractProduct(cleanMsg);
     const customerRefNo = this.extractCustomerRef(cleanMsg);
     const dia = this.extractDia(cleanMsg);
-    const tintColor = this.extractTintColor(cleanMsg);
+    const colorName = this.extractColorName(cleanMsg);
+    const tintColor = this.extractTintColor(cleanMsg) || colorName;
+    const tintingName = this.extractTintingName(cleanMsg);
     const fittingType = this.extractFittingType(cleanMsg);
+    const discount = this.extractDiscount(cleanMsg);
     const remarks = this.extractRemarks(cleanMsg);
 
-    const hasRightEye = !!(rx.right.sph || rx.right.cyl || rx.right.axis);
-    const hasLeftEye = !!(rx.left.sph || rx.left.cyl || rx.left.axis);
+    const hasRightEye = !!(rx.right.sph || rx.right.cyl || rx.right.axis || rx.right.prism);
+    const hasLeftEye = !!(rx.left.sph || rx.left.cyl || rx.left.axis || rx.left.prism);
     const hasRx = hasRightEye || hasLeftEye;
 
     const opticalCharacteristicsCount = [
@@ -30,13 +37,19 @@ export class OrderParser {
       !!lensType,
       !!product,
       !!dia,
+      !!colorName,
       !!tintColor,
+      !!tintingName,
       !!fittingType,
       !!remarks,
+      !!brand,
+      !!partyName,
+      !!lensCategory,
     ].filter(Boolean).length;
 
-    // A valid order requires RX details or at least 2 optical attributes
-    const isOrder = hasRx || opticalCharacteristicsCount >= 2;
+    // A valid order requires RX details or at least 2 optical attributes, or explicit ORDER header
+    const hasExplicitOrderHeader = /^\s*ORDER\b/i.test(cleanMsg);
+    const isOrder = hasRx || opticalCharacteristicsCount >= 2 || hasExplicitOrderHeader;
 
     const detectedTokens = {
       hasRightEye,
@@ -50,6 +63,9 @@ export class OrderParser {
       hasTintColor: !!tintColor,
       hasFittingType: !!fittingType,
       hasRemarks: !!remarks,
+      hasBrand: !!brand,
+      hasParty: !!partyName,
+      hasCategory: !!lensCategory,
     };
 
     const missingRequiredFields: string[] = [];
@@ -58,14 +74,22 @@ export class OrderParser {
 
     const internalOrder: InternalOrder = {
       phone,
+      partyName,
       customerRefNo,
+      brand,
+      rxType,
       product: product || (lensType ? `${lensType} Lens` : null),
+      productName: product || null,
+      lensCategory,
       lensType: lensType || null,
       coating,
       index,
+      colorName: colorName || tintColor,
       dia,
       tintColor,
+      tintingName,
       fittingType,
+      discount,
       remarks,
       rawMessage: cleanMsg,
       rx,
@@ -89,53 +113,141 @@ export class OrderParser {
       left: { sph: null, cyl: null, axis: null, addn: null },
     };
 
-    // Normalize commas to spaces
-    const text = message.replace(/,/g, ' ');
+    // 1. Check for structured section block format:
+    // e.g. "RIGHT EYE (OD)\nSPH: -1.00\nCYL: -0.50\n..." and "LEFT EYE (OS)\nSPH: -1.25\n..."
+    const rightBlockRegex = /(?:^|\n)[\s*•_`-]*RIGHT(?:\s*EYE)?(?:\s*\((?:OD|RE)\)|\s*OD|\s*RE)?[^\S\r\n]*[:=]?\s*\n([\s\S]*?)(?=(?:\n[\s*•_`-]*LEFT(?:\s*EYE)?(?:\s*\((?:OS|LE)\)|\s*OS|\s*LE)?[^\S\r\n]*[:=]?\s*\n)|\n[\s*•_`-]*(?:Discount|Remark|Note|Ref|Party|Brand|Product)|$)/i;
+    const leftBlockRegex = /(?:^|\n)[\s*•_`-]*LEFT(?:\s*EYE)?(?:\s*\((?:OS|LE)\)|\s*OS|\s*LE)?[^\S\r\n]*[:=]?\s*\n([\s\S]*?)(?=(?:\n[\s*•_`-]*RIGHT(?:\s*EYE)?(?:\s*\((?:OD|RE)\)|\s*OD|\s*RE)?[^\S\r\n]*[:=]?\s*\n)|\n[\s*•_`-]*(?:Discount|Remark|Note|Ref|Party|Brand|Product)|$)/i;
 
-    // Extract Addition (Add / Addn) e.g. "*Add:* +2.00", "Add: 2.00", "Addn: +1.75"
-    const addMatch = text.match(/(?:^|[\s*•_`-])(?:add(?:n|ition)?)[*\s]*[:=][*\s]*([+-]?\d+(?:\.\d+)?)/i);
-    const commonAdd = addMatch && addMatch[1] ? this.formatDiopter(addMatch[1]) : null;
+    const rightBlockMatch = rightBlockRegex.exec(message);
+    const leftBlockMatch = leftBlockRegex.exec(message);
 
-    // Boundary lookahead to stop before another field tag or newline
-    const stopPattern = `(?=(?:[*•_\\s-]*(?:L|LE|OS|LEFT|R|RE|OD|RIGHT|ADD|ADDN|ADDITION|DIA|DIAMETER|TINT|COLOR|FIT|FITTING|REMARK|NOTES?)[*•_\\s]*[:=])|[\n\r]|$)`;
-
-    const rightRegex = new RegExp(`(?:^|[\\s*•_\`-])(?:R|RE|OD|RIGHT)[^\\S\\r\\n*]*[:=][^\\S\\r\\n*]*([^\n\r]+?)${stopPattern}`, 'i');
-    const leftRegex = new RegExp(`(?:^|[\\s*•_\`-])(?:L|LE|OS|LEFT)[^\\S\\r\\n*]*[:=][^\\S\\r\\n*]*([^\n\r]+?)${stopPattern}`, 'i');
-
-    const rightMatch = rightRegex.exec(text);
-    const leftMatch = leftRegex.exec(text);
-
-    if (rightMatch && rightMatch[1]) {
-      rx.right = this.parseEyeSegment(rightMatch[1]);
-    }
-
-    if (leftMatch && leftMatch[1]) {
-      rx.left = this.parseEyeSegment(leftMatch[1]);
-    }
-
-    // Fallback without newlines if order is written on a single line
-    if (!rx.right.sph && !rx.left.sph) {
-      const fallbackRight = /(?:^|\s)(?:R|RE|OD|RIGHT)(?:\s*:|\s+)([\s\S]*?)(?=(?:(?:^|\s)(?:L|LE|OS|LEFT)(?:\s*:|\s+))|$)/i.exec(text);
-      const fallbackLeft = /(?:^|\s)(?:L|LE|OS|LEFT)(?:\s*:|\s+)([\s\S]*?)(?=(?:(?:^|\s)(?:R|RE|OD|RIGHT)(?:\s*:|\s+))|$)/i.exec(text);
-      if (fallbackRight && fallbackRight[1]) rx.right = this.parseEyeSegment(fallbackRight[1]);
-      if (fallbackLeft && fallbackLeft[1]) rx.left = this.parseEyeSegment(fallbackLeft[1]);
-    }
-
-    // Fallback: If no R/L tags, check for isolated diopter power like "-1.50" or "+2.00"
-    if (!rx.right.sph && !rx.left.sph) {
-      const diopterRegex = /(^|\s)([+-]\d+(?:\.\d{1,2})?)\s*(?:d|sph)?/i;
-      const match = diopterRegex.exec(text);
-      if (match && match[2] && parseFloat(match[2]) !== 0) {
-        rx.right.sph = this.formatDiopter(match[2]);
+    if (rightBlockMatch || leftBlockMatch) {
+      if (rightBlockMatch && rightBlockMatch[1]) {
+        rx.right = this.parseEyeBlock(rightBlockMatch[1]);
+      }
+      if (leftBlockMatch && leftBlockMatch[1]) {
+        rx.left = this.parseEyeBlock(leftBlockMatch[1]);
       }
     }
+
+    // 2. Fallback to compact/inline format if structured blocks did not yield prescription
+    if (!rx.right.sph && !rx.left.sph && !rx.right.cyl && !rx.left.cyl) {
+      // Normalize commas to spaces
+      const text = message.replace(/,/g, ' ');
+
+      // Boundary lookahead to stop before another field tag or newline
+      const stopPattern = `(?=(?:[*•_\\s-]*(?:L|LE|OS|LEFT|R|RE|OD|RIGHT|ADD|ADDN|ADDITION|DIA|DIAMETER|TINT|COLOR|FIT|FITTING|REMARK|NOTES?)[*•_\\s]*[:=])|[\n\r]|$)`;
+
+      const rightRegex = new RegExp(`(?:^|[\\s*•_\`-])(?:R|RE|OD|RIGHT)[^\\S\\r\\n*]*[:=][^\\S\\r\\n*]*([^\n\r]+?)${stopPattern}`, 'i');
+      const leftRegex = new RegExp(`(?:^|[\\s*•_\`-])(?:L|LE|OS|LEFT)[^\\S\\r\\n*]*[:=][^\\S\\r\\n*]*([^\n\r]+?)${stopPattern}`, 'i');
+
+      const rightMatch = rightRegex.exec(text);
+      const leftMatch = leftRegex.exec(text);
+
+      if (rightMatch && rightMatch[1]) {
+        rx.right = this.parseEyeSegment(rightMatch[1]);
+      }
+
+      if (leftMatch && leftMatch[1]) {
+        rx.left = this.parseEyeSegment(leftMatch[1]);
+      }
+
+      // Fallback without newlines if order is written on a single line
+      if (!rx.right.sph && !rx.left.sph) {
+        const fallbackRight = /(?:^|\s)(?:R|RE|OD|RIGHT)(?:\s*:|\s+)([\s\S]*?)(?=(?:(?:^|\s)(?:L|LE|OS|LEFT)(?:\s*:|\s+))|$)/i.exec(text);
+        const fallbackLeft = /(?:^|\s)(?:L|LE|OS|LEFT)(?:\s*:|\s+)([\s\S]*?)(?=(?:(?:^|\s)(?:R|RE|OD|RIGHT)(?:\s*:|\s+))|$)/i.exec(text);
+        if (fallbackRight && fallbackRight[1]) rx.right = this.parseEyeSegment(fallbackRight[1]);
+        if (fallbackLeft && fallbackLeft[1]) rx.left = this.parseEyeSegment(fallbackLeft[1]);
+      }
+
+      // Fallback: If no R/L tags, check for isolated diopter power like "-1.50" or "+2.00"
+      if (!rx.right.sph && !rx.left.sph) {
+        const diopterRegex = /(^|\s)([+-]\d+(?:\.\d{1,2})?)\s*(?:d|sph)?/i;
+        const match = diopterRegex.exec(text);
+        if (match && match[2] && parseFloat(match[2]) !== 0) {
+          rx.right.sph = this.formatDiopter(match[2]);
+        }
+      }
+    }
+
+    // Extract Addition (Add / Addn) if common across eyes e.g. "*Add:* +2.00", "Add: 2.00", "Addn: +1.75"
+    const addMatch = message.match(/(?:^|[\s*•_`-])(?:add(?:n|ition)?)[*\s]*[:=][*\s]*([+-]?\d+(?:\.\d+)?)/i);
+    const commonAdd = addMatch && addMatch[1] ? this.formatDiopter(addMatch[1]) : null;
 
     if (commonAdd) {
       if (!rx.right.addn) rx.right.addn = commonAdd;
       if (!rx.left.addn) rx.left.addn = commonAdd;
     }
 
+    rx.right.active = !!(rx.right.sph || rx.right.cyl || rx.right.axis || rx.right.prism);
+    rx.left.active = !!(rx.left.sph || rx.left.cyl || rx.left.axis || rx.left.prism);
+
     return rx;
+  }
+
+  /**
+   * Parses an eye block from structured multi-line text (e.g. RIGHT EYE (OD) section)
+   */
+  private static parseEyeBlock(blockText: string): EyePrescription {
+    const res: EyePrescription = { sph: null, cyl: null, axis: null };
+    if (!blockText) return res;
+
+    const getField = (pattern: string): string | null => {
+      const m = new RegExp(`(?:^|\\n)[\\s*•_\`-]*${pattern}[^\\S\\r\\n*]*[:=][^\\S\\r\\n*]*([^\\n\\r,;|•]+)`, 'i').exec(blockText);
+      if (m && m[1]) {
+        return this.cleanFieldValue(m[1]);
+      }
+      return null;
+    };
+
+    const sphVal = getField('(?:sph|sphere)');
+    if (sphVal) res.sph = this.formatDiopter(sphVal);
+
+    const cylVal = getField('(?:cyl|cylinder)');
+    if (cylVal) res.cyl = this.formatDiopter(cylVal);
+
+    const axisVal = getField('(?:axis|ax|x)');
+    if (axisVal) {
+      const parsedAxis = parseInt(axisVal.replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(parsedAxis)) res.axis = parsedAxis;
+    }
+
+    const addVal = getField('(?:add|addn|addition)');
+    if (addVal) res.addn = this.formatDiopter(addVal);
+
+    const corridorVal = getField('(?:corridor)');
+    if (corridorVal) res.corridor = corridorVal;
+
+    const etCtVal = getField('(?:et\\s*\\/\\s*ct|et|ct)');
+    if (etCtVal) {
+      if (/^et$/i.test(etCtVal) || /^ct$/i.test(etCtVal)) {
+        res.etCtType = etCtVal.toUpperCase() as 'ET' | 'CT';
+      } else {
+        res.etCtVal = etCtVal;
+      }
+    }
+
+    const mmVal = getField('(?:mm|ct\\s*mm|et\\s*mm)');
+    if (mmVal) res.mm = mmVal;
+
+    const prismVal = getField('(?:prism)');
+    if (prismVal) res.prism = prismVal;
+
+    const qtyVal = getField('(?:qty|quantity)');
+    if (qtyVal) {
+      const q = parseInt(qtyVal.replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(q) && q > 0) res.qty = q;
+    }
+
+    const diaVal = getField('(?:dia|diameter)');
+    if (diaVal) res.dia = diaVal;
+
+    const discVal = getField('(?:disc|discount)');
+    if (discVal) res.disc = discVal;
+
+    res.active = !!(res.sph || res.cyl || res.axis || res.prism);
+
+    return res;
   }
 
   /**
@@ -313,8 +425,9 @@ export class OrderParser {
    * Extracts Lens Type (Single Vision, Progressive, Bifocal, or custom)
    */
   private static extractLensType(message: string): string | null {
-    // 1. Explicit tag: *Type:* Single Vision _(or Progressive / Bifocal / custom)_
-    const typeLineMatch = /(?:^|[\s*•_`-])(?:type|lens\s*type)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r]*)/i.exec(message);
+    // 1. Explicit tag: "Lens Type: <val>" or "Type: <val>" (ensuring it is not "RX Type:")
+    const explicitLensType = /(?:^|[\n\r*•_`-])(?:lens\s*type)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r]*)/i.exec(message);
+    const typeLineMatch = explicitLensType || /(?:^|[\n\r*•_`-])(?<!\brx\s*)(?:type)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r]*)/i.exec(message);
     if (typeLineMatch) {
       const rawVal = typeLineMatch[1] ? typeLineMatch[1].replace(/\s*[(_].*?[)_]/g, '').trim() : '';
       const cleaned = this.cleanFieldValue(rawVal);
@@ -347,13 +460,18 @@ export class OrderParser {
     const coatLineMatch = /(?:^|[\s*•_`-])(?:coating|coat)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r]+)/i.exec(message);
     if (coatLineMatch && coatLineMatch[1]) {
       const cleanedLine = coatLineMatch[1].replace(/\s*[(_].*?[)_]/g, '').trim();
-      for (const item of COATINGS) {
-        if (item.pattern.test(cleanedLine)) {
-          return item.normalized;
-        }
-      }
       const cleaned = this.cleanFieldValue(cleanedLine);
       if (cleaned && !this.isReservedKeyword(cleaned)) {
+        if (/^arc$/i.test(cleaned)) return 'ARC';
+        if (/^blue\s*mirror$/i.test(cleaned)) return 'BLUE MIRROR';
+        if (/^blue\s*cut$/i.test(cleaned)) return 'BLUE CUT';
+        if (/^uncote$|^uncoat$/i.test(cleaned)) return 'Uncote';
+        if (/^hardcote$|^hardcoat$/i.test(cleaned)) return 'Hardcote';
+        for (const item of COATINGS) {
+          if (item.pattern.test(cleaned)) {
+            return item.normalized;
+          }
+        }
         return cleaned;
       }
     }
@@ -371,7 +489,7 @@ export class OrderParser {
    */
   private static extractProduct(message: string): string | null {
     // Check for explicit "Product: <name>" or "*Product:* I SIGHT" tag
-    const tagMatch = /(?:^|[\s*•_`-])(?:product|item|brand)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r]*)/i.exec(message);
+    const tagMatch = /(?:^|[\s*•_`-])(?:product(?:\s*name)?|item|lens\s*name)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r]*)/i.exec(message);
     if (tagMatch) {
       const rawVal = tagMatch[1] ? tagMatch[1].replace(/\s*[(_].*?[)_]/g, '').trim() : '';
       const cleaned = this.cleanFieldValue(rawVal);
@@ -402,7 +520,9 @@ export class OrderParser {
    */
   private static cleanFieldValue(val: string | null | undefined): string | null {
     if (!val) return null;
-    const cleaned = val.replace(/^[\s*_`"':\u2014\u2013-]+|[\s*_`"':\u2014\u2013-]+$/g, '').trim();
+    let cleaned = val.replace(/^[\s*_`"':\u2014\u2013]+|[\s*_`"':\u2014\u2013]+$/g, '').trim();
+    // Only strip leading hyphen if NOT followed by a digit (e.g. "- item" -> "item", but keep "-1.00")
+    cleaned = cleaned.replace(/^-(?!\d)/, '').replace(/-(?!\d)$/, '').trim();
     if (
       !cleaned ||
       cleaned === '__' ||
@@ -410,18 +530,69 @@ export class OrderParser {
       cleaned === '\u2014' ||
       cleaned === '\u2013' ||
       /^[—–-]+$/.test(cleaned) ||
+      (cleaned.startsWith('[') && cleaned.endsWith(']')) ||
       cleaned.toLowerCase() === 'na' ||
       cleaned.toLowerCase() === 'n/a' ||
       cleaned.toLowerCase() === 'none' ||
       cleaned.toLowerCase() === 'nil' ||
       cleaned.toLowerCase() === 'null' ||
       cleaned.toLowerCase() === 'undefined' ||
+      cleaned.toLowerCase() === 'customer name' ||
+      cleaned.toLowerCase() === 'party name' ||
       cleaned.toLowerCase() === 'patient name' ||
       cleaned.toLowerCase() === 'patient name or job no'
     ) {
       return null;
     }
     return cleaned;
+  }
+
+  /**
+   * Extracts Party Name (e.g. "Party: amk", "Party Name: Customer Name")
+   */
+  private static extractPartyName(message: string): string | null {
+    const match = /(?:^|[\n\r*•_`-])(?:party(?:\s*name)?|client(?:\s*name)?)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+)/i.exec(message);
+    if (match && match[1]) {
+      const clean = this.cleanFieldValue(match[1]);
+      if (clean && !this.isReservedKeyword(clean)) return clean;
+    }
+    return null;
+  }
+
+  /**
+   * Extracts Brand (e.g. "Brand: HYPE", "Brand: RIO")
+   */
+  private static extractBrand(message: string): string | null {
+    const match = /(?:^|[\n\r*•_`-])(?:brand(?:\s*name)?|lens\s*brand)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+)/i.exec(message);
+    if (match && match[1]) {
+      const clean = this.cleanFieldValue(match[1]);
+      if (clean && !this.isReservedKeyword(clean)) return clean;
+    }
+    return null;
+  }
+
+  /**
+   * Extracts RX Type (e.g. "RX Type: Prescription", "RX Type: Stock")
+   */
+  private static extractRxType(message: string): string | null {
+    const match = /(?:^|[\n\r*•_`-])(?:rx\s*type|prescription\s*type)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+)/i.exec(message);
+    if (match && match[1]) {
+      const clean = this.cleanFieldValue(match[1]);
+      if (clean && !this.isReservedKeyword(clean)) return clean;
+    }
+    return null;
+  }
+
+  /**
+   * Extracts Lens Category (e.g. "Lens Category: Single Vision", "Lens Category: Progressive")
+   */
+  private static extractLensCategory(message: string): string | null {
+    const match = /(?:^|[\n\r*•_`-])(?:lens\s*category|category)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+)/i.exec(message);
+    if (match && match[1]) {
+      const clean = this.cleanFieldValue(match[1]);
+      if (clean && !this.isReservedKeyword(clean)) return clean;
+    }
+    return null;
   }
 
   /**
@@ -468,10 +639,36 @@ export class OrderParser {
   }
 
   /**
+   * Extracts Color Name (e.g. "Color: PHOTO BLUE", "Color: Blue", "Color Name: PHOTO BLUE")
+   */
+  private static extractColorName(message: string): string | null {
+    const match = /(?:^|[\s*•_`-])(?:color(?:\s*name)?|colour(?:\s*name)?)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+?)(?=[^\S\r\n]+(?:fitting|fit|dia|ref|product|index|coating|type|r:|l:|remark)|[\n\r,;|•]|$)/i.exec(message);
+    if (match && match[1]) {
+      const clean = this.cleanFieldValue(match[1]);
+      if (clean && !this.isReservedKeyword(clean)) return clean;
+    }
+
+    return null;
+  }
+
+  /**
    * Extracts Tint / Color (e.g. "Tint/Color: Solid Grey 15%", "Tint: Brown 50%", "* Tint/Color: *grey*")
    */
   private static extractTintColor(message: string): string | null {
-    const match = /(?:^|[\s*•_`-])(?:tint(?:\s*\/\s*color)?|color)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+?)(?=[^\S\r\n]+(?:fitting|fit|dia|ref|product|index|coating|type|r:|l:|remark)|[\n\r,;|•]|$)/i.exec(message);
+    const match = /(?:^|[\s*•_`-])(?:tint(?:\s*\/\s*color)?|tinting(?:\s*name)?|color)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+?)(?=[^\S\r\n]+(?:fitting|fit|dia|ref|product|index|coating|type|r:|l:|remark)|[\n\r,;|•]|$)/i.exec(message);
+    if (match && match[1]) {
+      const clean = this.cleanFieldValue(match[1]);
+      if (clean && !this.isReservedKeyword(clean)) return clean;
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts Tinting Name (e.g. "Tinting: G-15", "Tinting Name: G-15")
+   */
+  private static extractTintingName(message: string): string | null {
+    const match = /(?:^|[\s*•_`-])(?:tinting(?:\s*name)?)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+?)(?=[^\S\r\n]+(?:fitting|fit|dia|ref|product|index|coating|type|r:|l:|remark)|[\n\r,;|•]|$)/i.exec(message);
     if (match && match[1]) {
       const clean = this.cleanFieldValue(match[1]);
       if (clean && !this.isReservedKeyword(clean)) return clean;
@@ -485,6 +682,19 @@ export class OrderParser {
    */
   private static extractFittingType(message: string): string | null {
     const match = /(?:^|[\s*•_`-])(?:fitting(?:\s*type)?|fit)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+?)(?=[^\S\r\n]+(?:tint|color|dia|ref|product|index|coating|type|r:|l:|remark)|[\n\r,;|•]|$)/i.exec(message);
+    if (match && match[1]) {
+      const clean = this.cleanFieldValue(match[1]);
+      if (clean && !this.isReservedKeyword(clean)) return clean;
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts Discount (e.g. "Discount: 0", "Discount: 10%", "Disc: 50")
+   */
+  private static extractDiscount(message: string): string | number | null {
+    const match = /(?:^|[\s*•_`-])(?:discount|disc)[^\S\r\n*]*[:=][^\S\r\n*]*([^\n\r,;|•]+)/i.exec(message);
     if (match && match[1]) {
       const clean = this.cleanFieldValue(match[1]);
       if (clean && !this.isReservedKeyword(clean)) return clean;

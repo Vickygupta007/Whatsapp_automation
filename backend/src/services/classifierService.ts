@@ -11,7 +11,10 @@ export function extractTargetOrderId(rawText?: string | null): string | null {
   // 1. Matches "STATUS:ARCO-123", "STATUS:SO-123", "track: ARCO-123", "status ARCO-123"
   const prefixMatch = text.match(/^(?:status|track)\s*[:\s-]\s*([A-Za-z0-9_#()-]+)$/i);
   if (prefixMatch && prefixMatch[1].trim()) {
-    return prefixMatch[1].trim();
+    const val = prefixMatch[1].trim();
+    if (!/^(order|orders|status|my\s*order|my\s*orders)$/i.test(val)) {
+      return val;
+    }
   }
 
   // 2. Matches standalone order ID patterns:
@@ -123,31 +126,9 @@ export class ClassifierService {
       };
     }
 
-    // Rule: Order selection by index from an active recent orders list session (e.g. "1", "2", "#1", "#2", "order 1", "order #2", "select 1")
-    const explicitIndexMatch = cleanLower.match(/^(?:#|order\s*#?\s*|select\s*#?\s*)(\d{1,3})$/i);
-    const bareNumMatch = cleanLower.match(/^(\d{1,3})$/);
-    const selectedNum = explicitIndexMatch
-      ? parseInt(explicitIndexMatch[1], 10)
-      : (bareNumMatch && RecentOrdersSessionService.hasActiveSession(phone, storeId))
-      ? parseInt(bareNumMatch[1], 10)
-      : null;
-
-    if (selectedNum !== null && RecentOrdersSessionService.hasActiveSession(phone, storeId)) {
-      const matchedOrderId = RecentOrdersSessionService.getOrderByIndex(phone, selectedNum, storeId);
-      if (matchedOrderId) {
-        return {
-          category: 'ORDER_STATUS',
-          replyText: AUTO_REPLY_TEMPLATES.ORDER_STATUS,
-          reason: `Selected order #${selectedNum} (${matchedOrderId}) from recent orders list`,
-          detectedKeywords: [matchedOrderId],
-          orderDetails: { queriedOrderId: matchedOrderId, selectedIndex: selectedNum },
-        };
-      }
-    }
-
     // Rule 1: ORDER FORMAT (Menu Option 1)
     // Matches: "1", "1.", "#1", "option 1", "1. order format", "1. 📝 order format", "order format", "order template", "how to order", "format", "guide"
-    const ORDER_FORMAT_REGEX = /^(1|1\.|#1|#1\.|option\s*1|1\.\s*📝?\s*order\s*format|order\s*format|order\s*template|how\s*to\s*order|format|order\s*guide|guide)$/i;
+    const ORDER_FORMAT_REGEX = /^(1|1\.|option\s*1|1\.\s*📝?\s*order\s*format|order\s*format|order\s*template|how\s*to\s*order|format|order\s*guide|guide)$/i;
     if (ORDER_FORMAT_REGEX.test(cleanLower)) {
       return {
         category: 'ORDER_FORMAT',
@@ -186,13 +167,36 @@ export class ClassifierService {
       };
     }
 
+    // Rule: Order selection by index from an active recent orders list session (e.g. "#1", "#2", "order 1", "order #2", "select 1")
+    const explicitIndexMatch = cleanLower.match(/^(?:#|order\s*#?\s*|select\s*#?\s*)(\d{1,3})$/i);
+    const bareNumMatch = cleanLower.match(/^(\d{1,3})$/);
+    const selectedNum = explicitIndexMatch
+      ? parseInt(explicitIndexMatch[1], 10)
+      : (bareNumMatch && RecentOrdersSessionService.hasActiveSession(phone, storeId))
+      ? parseInt(bareNumMatch[1], 10)
+      : null;
+
+    if (selectedNum !== null && RecentOrdersSessionService.hasActiveSession(phone, storeId)) {
+      const matchedOrderId = RecentOrdersSessionService.getOrderByIndex(phone, selectedNum, storeId);
+      if (matchedOrderId) {
+        return {
+          category: 'ORDER_STATUS',
+          replyText: AUTO_REPLY_TEMPLATES.ORDER_STATUS,
+          reason: `Selected order #${selectedNum} (${matchedOrderId}) from recent orders list`,
+          detectedKeywords: [matchedOrderId],
+          orderDetails: { queriedOrderId: matchedOrderId, selectedIndex: selectedNum },
+        };
+      }
+    }
 
     // Rule E & F: LENS ORDER VALIDATION
     // Check if the message contains prescription details / optical order structure
     const hasOrderMarkers =
+      /^\s*ORDER\b/i.test(text) ||
       /order\s*ref\s*:/i.test(text) ||
       /\b(r|re|right|od)\s*[:=]\s*[-+]?\d/i.test(text) ||
       /\b(l|le|left|os)\s*[:=]\s*[-+]?\d/i.test(text) ||
+      /\b(right\s*eye|left\s*eye)\b/i.test(text) ||
       /\b(sph|cyl|axis|add|bluecut|single\s*vision|progressive|bifocal)\b/i.test(text);
 
     if (hasOrderMarkers) {
@@ -214,9 +218,15 @@ export class ClassifierService {
           },
         };
       } else {
+        const isFullStructuredOrder =
+          /^\s*ORDER\b/i.test(text) &&
+          /\b(brand|index|product|lens\s*category|rx\s*type|party|right\s*eye|left\s*eye)\s*:/i.test(text);
+        const replyText = (isFullStructuredOrder && validation.reason)
+          ? `⚠️ *Order Incomplete*\n\n${validation.reason}\n\n👉 Please provide the missing detail to proceed.`
+          : AUTO_REPLY_TEMPLATES.INVALID_ORDER;
         return {
           category: 'INVALID_ORDER',
-          replyText: AUTO_REPLY_TEMPLATES.INVALID_ORDER,
+          replyText,
           reason: validation.reason || 'Incomplete optical order format',
           detectedKeywords: parsedOrder.missingRequiredFields,
         };
