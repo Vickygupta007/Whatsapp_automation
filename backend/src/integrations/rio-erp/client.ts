@@ -82,10 +82,13 @@ export class LiveRioErpClient implements IRioErpClient {
       const response = await this.http.post('/api/integrations/whatsapp/order', payload);
       const orderResponse = RioErpMapper.mapOrderResponse(response.data as Record<string, unknown>);
 
-      // Immediately sync optical parameters (Color, Dia, Fitting) to Rio ERP's database
-      // so Rio ERP Order Details Modal displays them right away without manual Edit/Save.
+      // Immediately sync optical parameters (Color, Dia, Fitting) and live calculated rates to Rio ERP's database
+      // so Rio ERP Order Details Modal displays them right away with accurate amounts without manual Edit/Save.
       if (orderResponse.success && orderResponse.orderId) {
-        await this.syncRioErpOrderDetails(orderResponse.orderId, orderData);
+        const syncResult = await this.syncRioErpOrderDetails(orderResponse.orderId, orderData);
+        if (syncResult && syncResult.amount) {
+          orderResponse.amount = syncResult.amount;
+        }
       }
 
       return orderResponse;
@@ -137,7 +140,7 @@ export class LiveRioErpClient implements IRioErpClient {
     return null;
   }
 
-  private async syncRioErpOrderDetails(orderId: string, orderData: RioErpOrderRequest): Promise<void> {
+  private async syncRioErpOrderDetails(orderId: string, orderData: RioErpOrderRequest): Promise<{ success: boolean; amount?: number } | void> {
     try {
       const token = await this.getStaffToken();
       if (!token) {
@@ -277,6 +280,79 @@ export class LiveRioErpClient implements IRioErpClient {
         existingDetails = { ...(existing.details as Record<string, unknown>) };
       }
 
+      // Calculate live pricing using Rio ERP's rate calculation engine
+      let calculatedAmount: number = Number(existing.amount) || 0;
+      let calculatedFinancials: Record<string, unknown> = (existingDetails.financials as Record<string, unknown>) || {};
+      let calculatedRateBreakdown: Record<string, unknown> = (existingDetails.rateBreakdown as Record<string, unknown>) || {};
+
+      try {
+        const pricingRes = await axios.post(
+          `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
+          {
+            brand: targetBrand !== '-' ? targetBrand : 'I SIGHT',
+            lensName: targetProduct !== '-' ? targetProduct : 'I SIGHT FF',
+            productName: targetProduct !== '-' ? targetProduct : 'I SIGHT FF',
+            lensCategory: targetLensType !== '-' ? targetLensType : 'Single Vision',
+            lensType: targetLensType !== '-' ? targetLensType : 'I SIGHT',
+            lensIndex: targetIndex || '1.50',
+            coating: targetCoating || 'I Sight HC',
+            colorName: targetColor !== '-' ? targetColor : undefined,
+            dia: targetDia !== '-' ? targetDia : undefined,
+            fittingType: targetFitting !== '-' ? targetFitting : 'None (Uncut Lenses)',
+            partyId: existing.partyId,
+            partyType: existing.partyType || 'retailer',
+            partyName: existing.partyName || existing.customer,
+            rightActive: orderData.rx?.right?.active ?? true,
+            rightSph: orderData.rx?.right?.sph ? String(orderData.rx.right.sph) : '0.00',
+            rightCyl: orderData.rx?.right?.cyl ? String(orderData.rx.right.cyl) : '0.00',
+            rightAxis: orderData.rx?.right?.axis !== undefined && orderData.rx?.right?.axis !== null ? String(orderData.rx.right.axis) : '',
+            rightAddn: orderData.rx?.right?.addn ? String(orderData.rx.right.addn) : '',
+            rightQty: orderData.rx?.right?.qty || 1,
+            leftActive: orderData.rx?.left?.active ?? true,
+            leftSph: orderData.rx?.left?.sph ? String(orderData.rx.left.sph) : '0.00',
+            leftCyl: orderData.rx?.left?.cyl ? String(orderData.rx.left.cyl) : '0.00',
+            leftAxis: orderData.rx?.left?.axis !== undefined && orderData.rx?.left?.axis !== null ? String(orderData.rx.left.axis) : '',
+            leftAddn: orderData.rx?.left?.addn ? String(orderData.rx.left.addn) : '',
+            leftQty: orderData.rx?.left?.qty || 1,
+            taxRate: 5,
+          },
+          { timeout: 6000 }
+        );
+
+        if (pricingRes.data && pricingRes.data.success) {
+          const rates = pricingRes.data;
+          const subTotal = Number(rates.subTotal) || 0;
+          const taxAmount = Number(rates.taxAmount) || 0;
+          const grandTotal = Number(rates.grandTotal) || (subTotal + taxAmount);
+
+          if (grandTotal > 0) {
+            calculatedAmount = grandTotal;
+            calculatedRateBreakdown = rates;
+            calculatedFinancials = {
+              lensBaseSubTotal: Number(rates.baseSalePrice) || subTotal,
+              grossSubTotal: subTotal,
+              subTotal: subTotal,
+              specialCharges: Number(rates.specialCharges) || 0,
+              fittingCharge: Number(rates.serviceChargesDetails?.fitCharge) || 0,
+              prismCharge: (Number(rates.rightDetails?.prismExtra) || 0) + (Number(rates.leftDetails?.prismExtra) || 0),
+              taxRate: 5,
+              taxAmount: taxAmount,
+              taxApplicable: 'CGST_SGST',
+              cgstRate: 2.5,
+              sgstRate: 2.5,
+              cgstAmount: taxAmount / 2,
+              sgstAmount: taxAmount / 2,
+              amountReceived: 0,
+              balance: grandTotal,
+              netFinalTotal: subTotal,
+              grandTotal: grandTotal,
+            };
+          }
+        }
+      } catch (rateErr: unknown) {
+        logger.warn(`[LiveRioErpClient] Non-blocking rate calculation note for ${orderId}: ${String(rateErr)}`);
+      }
+
       const updatedDetails: Record<string, unknown> = {
         ...existingDetails,
         color: targetColor,
@@ -305,6 +381,10 @@ export class LiveRioErpClient implements IRioErpClient {
         lensIndex: targetIndex,
         lensType: targetLensType,
         customerRefNo: targetCustomerRefNo,
+        amount: calculatedAmount > 0 ? calculatedAmount : existing.amount,
+        grandTotal: calculatedAmount > 0 ? calculatedAmount : existing.grandTotal,
+        financials: calculatedFinancials,
+        rateBreakdown: calculatedRateBreakdown,
       };
 
       if (updatedDetails.right && typeof updatedDetails.right === 'object') {
@@ -367,6 +447,14 @@ export class LiveRioErpClient implements IRioErpClient {
         specialRemarks: targetRemarks,
         notes: targetRemarks,
         note: targetRemarks,
+        amount: calculatedAmount > 0 ? calculatedAmount : existing.amount,
+        grandTotal: calculatedAmount > 0 ? calculatedAmount : existing.grandTotal,
+        subTotal: (calculatedFinancials as any)?.subTotal || existing.subTotal,
+        taxAmount: (calculatedFinancials as any)?.taxAmount || existing.taxAmount,
+        taxRate: 5,
+        financials: typeof calculatedFinancials === 'object' && Object.keys(calculatedFinancials).length > 0
+          ? JSON.stringify(calculatedFinancials)
+          : existing.financials,
         details: JSON.stringify(updatedDetails),
       };
 
@@ -375,12 +463,15 @@ export class LiveRioErpClient implements IRioErpClient {
         timeout: 8000,
       });
 
-      logger.info(`[LiveRioErpClient] Successfully synced optical parameters and remarks for order ${orderId}`, {
+      logger.info(`[LiveRioErpClient] Successfully synced optical parameters and live pricing for order ${orderId}`, {
         color: targetColor,
         dia: targetDia,
         fitting: targetFitting,
         remarks: targetRemarks,
+        amount: calculatedAmount,
       });
+
+      return { success: true, amount: calculatedAmount > 0 ? calculatedAmount : undefined };
     } catch (syncErr: unknown) {
       const errData = axios.isAxiosError(syncErr) ? syncErr.response?.data : undefined;
       logger.warn(`[LiveRioErpClient] Non-blocking warning: Failed to sync details for order ${orderId}: ${String(syncErr)}`, {

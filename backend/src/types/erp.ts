@@ -104,6 +104,7 @@ export interface RioErpOrderResponse {
   status: string;
   message?: string;
   party?: RioErpParty;
+  amount?: number;
   createdAt: string;
   rawResponse?: unknown;
 }
