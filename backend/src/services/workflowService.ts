@@ -4,7 +4,7 @@ import { RioErpMapper } from '../integrations/rio-erp/mappers.js';
 import { WhatsAppClient } from '../integrations/whatsapp/client.js';
 import { StoreRegistry } from '../config/stores.js';
 import { OrderParser } from '../parsers/orderParser.js';
-import { AUTO_REPLY_TEMPLATES } from '../types/classifier.js';
+import { ARCO_ORDER_FORMAT, AUTO_REPLY_TEMPLATES, RIO_ORDER_FORMAT } from '../types/classifier.js';
 import { ClassifierService, extractTargetOrderId } from './classifierService.js';
 import { ImageOcrService } from './imageOcrService.js';
 import { DeliveryTaskData, IRioErpClient } from '../types/erp.js';
@@ -138,7 +138,8 @@ export class WorkflowService {
 
     logger.info(`[WorkflowService] Processing auto-reply workflow for messageId: ${messageId} (Phone: ${phone})`);
 
-    const store = StoreRegistry.getStoreByPhoneNumberId(msg.recipientPhoneNumberId);
+    const store = (msg.storeId ? StoreRegistry.getStoreById(msg.storeId) : undefined)
+      || StoreRegistry.getStoreByPhoneNumberId(msg.recipientPhoneNumberId);
     const activeErp = this.hasCustomClient ? this.erpAdapter : ErpAdapterFactory.getAdapterForStore(store.id);
     const waOptions = {
       phoneNumberId: store.whatsappPhoneNumberId,
@@ -458,9 +459,29 @@ How can we help you today?
         classification.replyText = replyText;
       }
 
-      // Handle ORDER_FORMAT: Provide structured optical order template
+      // Handle ORDER_FORMAT: Provide structured optical order template (Arco vs Rio)
       if (classification.category === 'ORDER_FORMAT') {
-        replyText = AUTO_REPLY_TEMPLATES.ORDER_FORMAT;
+        const isArco = store.id === 'arco';
+        replyText = isArco ? ARCO_ORDER_FORMAT : RIO_ORDER_FORMAT;
+        classification.replyText = replyText;
+      }
+
+      // Handle HELP: Provide store-specific help menu
+      if (classification.category === 'HELP') {
+        const storeDisplayName = store.id === 'rio' ? 'Rio Digital Lenses' : store.name;
+        replyText = `ℹ️ *${storeDisplayName} — Help*
+
+Here are quick actions you can take:
+
+1️⃣ *Reply 1* — 📝 ORDER FORMAT (Text ordering format)
+2️⃣ *Reply 2* — 📦 SHOW ALL ORDERS (Check all active orders)
+3️⃣ *Reply 3* — ❓ HELP (Customer support & instructions)
+
+📸 *Place Order by Photo*
+Send a clear photo of your prescription slip.
+
+📦 *Track Order*
+Send *STATUS <Order-ID>* (e.g. *STATUS SO-2026-00124*).`;
         classification.replyText = replyText;
       }
 

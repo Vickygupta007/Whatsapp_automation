@@ -4,7 +4,7 @@ import { MockRioErpClient } from '../src/integrations/rio-erp/mockClient.js';
 import { WhatsAppClient } from '../src/integrations/whatsapp/client.js';
 import { NormalizationService } from '../src/services/normalizationService.js';
 import { WorkflowService } from '../src/services/workflowService.js';
-import { AUTO_REPLY_TEMPLATES } from '../src/types/classifier.js';
+import { ARCO_ORDER_FORMAT, AUTO_REPLY_TEMPLATES, RIO_ORDER_FORMAT } from '../src/types/classifier.js';
 import { MetaWebhookPayload, NormalizedMessage } from '../src/types/webhook.js';
 
 describe('WhatsApp Auto-Reply System - 12 Core Test Suites', () => {
@@ -977,6 +977,46 @@ R: -1.00 cyl`;
     expect(resCross.replyText).toContain('Order Not Found');
     expect(resCross.replyText).not.toContain('Edging & Fitting');
     expect(resCross.replyText).not.toContain('ABC Optical');
+  });
+
+  // Test 24: Store-Specific Order Formats
+  it('24. Store-Specific Order Formats: "1" in Rio chat returns NEW format; "1" in Arco chat returns OLD format', async () => {
+    // A: Rio chat option 1
+    const rioMsg: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.RIO_FORMAT_1',
+      messageType: 'text',
+      text: '1',
+      mediaId: null,
+      recipientPhoneNumberId: '1327525300446181', // Rio Optical Phone Number ID
+      rawPayload: {},
+    };
+    const rioRes = await workflow.processNormalizedMessage(rioMsg);
+    expect(rioRes.category).toBe('ORDER_FORMAT');
+    expect(rioRes.replyText).toBe(RIO_ORDER_FORMAT);
+    expect(rioRes.replyText).toContain('Party: amk');
+    expect(rioRes.replyText).toContain('Brand: HYPE');
+    expect(rioRes.replyText).toContain('RIGHT EYE (OD)');
+
+    // B: Arco chat option 1
+    const arcoMsg: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.ARCO_FORMAT_1',
+      messageType: 'text',
+      text: '1',
+      mediaId: null,
+      recipientPhoneNumberId: '1273435872528900', // ARCO optics Phone Number ID
+      rawPayload: {},
+    };
+    const arcoRes = await workflow.processNormalizedMessage(arcoMsg);
+    expect(arcoRes.category).toBe('ORDER_FORMAT');
+    expect(arcoRes.replyText).toBe(ARCO_ORDER_FORMAT);
+    expect(arcoRes.replyText).toContain('Ref:');
+    expect(arcoRes.replyText).toContain('Product:');
+    expect(arcoRes.replyText).toContain('R: -1.00 / -0.50 x 90');
+    expect(arcoRes.replyText).not.toContain('Brand: HYPE');
   });
 });
 

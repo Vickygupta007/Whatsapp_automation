@@ -21,33 +21,7 @@ export interface ClassificationResult {
   orderDetails?: Record<string, unknown>;
 }
 
-export const AUTO_REPLY_TEMPLATES: Record<MessageCategory, string> = {
-  GREETING: `👋 Hello Customer Name,
-Welcome to Rio Digital Lenses 👓
-🏢 Account: Ash (100023)
-🏭 Assigned Lab: RIO-AHMEDABAD
-How can we help you today?
-
-1.📝 ORDER FORMAT — Text ordering guide
-2.📦 SHOW ALL ORDERS — Check order progress
-3.❓ HELP — Support & assistance
-📸 Send Prescription Photo — Place an order`,
-
-  HELP: `ℹ️ *Rio Digital Lenses — Help*
-
-Here are quick actions you can take:
-
-1️⃣ *Reply 1* — 📝 ORDER FORMAT (Text ordering format)
-2️⃣ *Reply 2* — 📦 SHOW ALL ORDERS (Check all active orders)
-3️⃣ *Reply 3* — ❓ HELP (Customer support & instructions)
-
-📸 *Place Order by Photo*
-Send a clear photo of your prescription slip.
-
-📦 *Track Order*
-Send *STATUS <Order-ID>* (e.g. *STATUS SO-2026-00124*).`,
-
-  ORDER_FORMAT: `📝 *Order Format Guide*
+export const RIO_ORDER_FORMAT = `📝 *Order Format Guide*
 
 You can copy, edit, and send this format to place your order:
 
@@ -86,7 +60,54 @@ QTY: 1
 
 Remark: Test Order
 
-📸 *Tip:* It's even faster to simply send a photo of the prescription slip!`,
+📸 *Tip:* It's even faster to simply send a photo of the prescription slip!`;
+
+export const ARCO_ORDER_FORMAT = `📝 Order Format Guide
+
+You can copy, edit and send this format:
+
+Ref: 
+Product: 
+Type: 
+Index: 
+Coating: 
+Dia: 
+Color: 
+Fit: 
+R: -1.00 / -0.50 x 90
+L: -1.25 / -0.25 x 180
+Add: 
+Remark: 
+
+📸 Tip: It's even faster to just send a photo of the prescription slip!`;
+
+export const AUTO_REPLY_TEMPLATES: Record<MessageCategory, string> = {
+  GREETING: `👋 Hello Customer Name,
+Welcome to Rio Digital Lenses 👓
+🏢 Account: Ash (100023)
+🏭 Assigned Lab: RIO-AHMEDABAD
+How can we help you today?
+
+1.📝 ORDER FORMAT — Text ordering guide
+2.📦 SHOW ALL ORDERS — Check order progress
+3.❓ HELP — Support & assistance
+📸 Send Prescription Photo — Place an order`,
+
+  HELP: `ℹ️ *Rio Digital Lenses — Help*
+
+Here are quick actions you can take:
+
+1️⃣ *Reply 1* — 📝 ORDER FORMAT (Text ordering format)
+2️⃣ *Reply 2* — 📦 SHOW ALL ORDERS (Check all active orders)
+3️⃣ *Reply 3* — ❓ HELP (Customer support & instructions)
+
+📸 *Place Order by Photo*
+Send a clear photo of your prescription slip.
+
+📦 *Track Order*
+Send *STATUS <Order-ID>* (e.g. *STATUS SO-2026-00124*).`,
+
+  ORDER_FORMAT: RIO_ORDER_FORMAT,
 
   ORDER_STATUS: `📦 *Track Your Order*
 

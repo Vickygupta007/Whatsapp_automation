@@ -1,5 +1,11 @@
 import { OrderParser } from '../parsers/orderParser.js';
-import { AUTO_REPLY_TEMPLATES, ClassificationResult, MessageCategory } from '../types/classifier.js';
+import {
+  ARCO_ORDER_FORMAT,
+  AUTO_REPLY_TEMPLATES,
+  ClassificationResult,
+  MessageCategory,
+  RIO_ORDER_FORMAT,
+} from '../types/classifier.js';
 import { logger } from '../utils/logger.js';
 import { OrderValidator } from '../validators/orderValidator.js';
 import { RecentOrdersSessionService } from './recentOrdersSessionService.js';
@@ -130,10 +136,11 @@ export class ClassifierService {
     // Matches: "1", "1.", "#1", "option 1", "1. order format", "1. 📝 order format", "order format", "order template", "how to order", "format", "guide"
     const ORDER_FORMAT_REGEX = /^(1|1\.|option\s*1|1\.\s*📝?\s*order\s*format|order\s*format|order\s*template|how\s*to\s*order|format|order\s*guide|guide)$/i;
     if (ORDER_FORMAT_REGEX.test(cleanLower)) {
+      const isArco = storeId === 'arco';
       return {
         category: 'ORDER_FORMAT',
-        replyText: AUTO_REPLY_TEMPLATES.ORDER_FORMAT,
-        reason: 'Matched menu option 1 (Order Format request)',
+        replyText: isArco ? ARCO_ORDER_FORMAT : RIO_ORDER_FORMAT,
+        reason: `Matched menu option 1 (Order Format request for ${isArco ? 'ARCO' : 'RIO'})`,
         detectedKeywords: [cleanLower],
       };
     }

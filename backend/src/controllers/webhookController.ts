@@ -90,6 +90,9 @@ export class WebhookController {
 
       // 3. Process each incoming message through the workflow
       for (const msg of normalizedMessages) {
+        if (storeId) {
+          msg.storeId = storeId;
+        }
         await AppRepository.saveWebhookEvent(msg.messageId, 'whatsapp_inbound', body as unknown as Record<string, unknown>);
         // Process pipeline
         workflowService.processNormalizedMessage(msg).catch((err) => {
