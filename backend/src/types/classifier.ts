@@ -29,7 +29,7 @@ Welcome to Rio Digital Lenses 👓
 How can we help you today?
 
 1.📝 ORDER FORMAT — Text ordering guide
-2.📦 STATUS — Check order progress
+2.📦 SHOW ALL ORDERS — Check order progress
 3.❓ HELP — Support & assistance
 📸 Send Prescription Photo — Place an order`,
 
@@ -37,33 +37,56 @@ How can we help you today?
 
 Here are quick actions you can take:
 
-📸 *Place Order*
-Send a clear photo of your prescription slip.
+1️⃣ *Reply 1* — 📝 ORDER FORMAT (Text ordering format)
+2️⃣ *Reply 2* — 📦 SHOW ALL ORDERS (Check all active orders)
+3️⃣ *Reply 3* — ❓ HELP (Customer support & instructions)
 
-📝 *Order by Text*
-Reply *ORDER FORMAT* for the text order guide.
+📸 *Place Order by Photo*
+Send a clear photo of your prescription slip.
 
 📦 *Track Order*
 Send *STATUS <Order-ID>* (e.g. *STATUS SO-2026-00124*).`,
 
-  ORDER_FORMAT: `📝 Order Format Guide
+  ORDER_FORMAT: `📝 *Order Format Guide*
 
-You can copy, edit and send this format:
+You can copy, edit, and send this format to place your order:
 
-Ref: 
-Product: 
-Type: 
-Index: 
-Coating: 
-Dia: 
-Color: 
-Fit: 
-R: -1.00 / -0.50 x 90
-L: -1.25 / -0.25 x 180
-Add: 
-Remark: 
+ORDER
+Party: amk
+Brand: HYPE
+RX Type: Prescription
+Product: HYPE B B
+Lens Category: Single Vision
+Index: 1.56
+Lens Type: White
+Coating: Blue HMC
+Dia: 70
+Tinting: G-15
+Fitting: Supra
+RIGHT EYE (OD)
+SPH: -1.00
+CYL: -0.50
+AXIS: 90
+ADD: +2.00
+CORRIDOR: 14
+ET/CT: ET
+MM: 2.0
+PRISM: 1.0
+QTY: 1
+LEFT EYE (OS)
+SPH: -1.25
+CYL: -0.75
+AXIS: 85
+ADD: +2.00
+CORRIDOR: 14
+ET/CT: ET
+MM: 2.0
+PRISM: 1.0
+QTY: 1
 
-📸 Tip: It's even faster to just send a photo of the prescription slip!`,
+Remark: Test Order
+
+📸 *Tip:* It's even faster to simply send a photo of the prescription slip!`,
 
   ORDER_STATUS: `📦 *Track Your Order*
 

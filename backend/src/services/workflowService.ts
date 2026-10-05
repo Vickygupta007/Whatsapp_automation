@@ -452,9 +452,15 @@ Welcome to ${storeDisplayName} 👓
 How can we help you today?
 
 1.📝 ORDER FORMAT — Text ordering guide
-2.📦 STATUS — Check order progress
+2.📦 SHOW ALL ORDERS — Check order progress
 3.❓ HELP — Support & assistance
 📸 Send Prescription Photo — Place an order`;
+        classification.replyText = replyText;
+      }
+
+      // Handle ORDER_FORMAT: Provide structured optical order template
+      if (classification.category === 'ORDER_FORMAT') {
+        replyText = AUTO_REPLY_TEMPLATES.ORDER_FORMAT;
         classification.replyText = replyText;
       }
 

@@ -139,8 +139,8 @@ export class ClassifierService {
     }
 
     // Rule 2: ORDER STATUS & LIST OF ORDERS (Menu Option 2)
-    // Matches: "2", "2.", "2. status", "2. order status", "2.📦 status", "option 2", "status", "order status", "track", "track order", "orders", "my orders", "list orders", "list of orders", "list"
-    const ORDER_STATUS_REGEX = /^(2|2\.|2\.\s*status|2\.\s*order\s*status|2\.\s*📦\s*status|option\s*2|order\s*status|status|track\s*order|track|orders|my\s*orders|list\s*orders|list\s*of\s*orders|list|order\s*list)$/i;
+    // Matches: "2", "2.", "2. status", "2. order status", "2.📦 status", "option 2", "status", "order status", "track", "track order", "orders", "my orders", "list orders", "list of orders", "list", "show all orders", "show all order", "all orders"
+    const ORDER_STATUS_REGEX = /^(2|2\.|2\.\s*status|2\.\s*order\s*status|2\.\s*📦\s*status|option\s*2|order\s*status|status|track\s*order|track|orders|my\s*orders|list\s*orders|list\s*of\s*orders|list|order\s*list|show\s*all\s*orders?|all\s*orders?|show\s*orders?|show\s*all)$/i;
 
     if (
       ORDER_STATUS_REGEX.test(cleanLower) ||

@@ -106,7 +106,7 @@ describe('WhatsApp Auto-Reply System - 12 Core Test Suites', () => {
     }
 
     expect(WhatsAppClient.sentMessagesLog[0].message).toContain('Order Format Guide');
-    expect(WhatsAppClient.sentMessagesLog[0].message).toContain('Ref:');
+    expect(WhatsAppClient.sentMessagesLog[0].message).toContain('Party:');
     expect(erpSpy).not.toHaveBeenCalled();
   });
 
@@ -845,7 +845,7 @@ R: -1.00 cyl`;
     const res1 = await workflow.processNormalizedMessage(msg1);
     expect(res1.category).toBe('ORDER_FORMAT');
     expect(res1.replyText).toContain('Order Format Guide');
-    expect(res1.replyText).toContain('Ref:');
+    expect(res1.replyText).toContain('Party:');
 
     // Option 2 -> ORDER_STATUS (List of orders)
     const msg2: NormalizedMessage = {
