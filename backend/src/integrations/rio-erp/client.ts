@@ -346,22 +346,21 @@ export class LiveRioErpClient implements IRioErpClient {
         targetBrand !== '-' ? targetBrand : ''
       );
 
-      // Calculate live pricing using Rio ERP's actual rate calculation engine
+      // Calculate live pricing using Rio ERP's authoritative backend rate calculation engine
       let calculatedAmount: number = Number(existing.amount) || 0;
       let calculatedFinancials: Record<string, unknown> = (existingDetails.financials as Record<string, unknown>) || {};
       let calculatedRateBreakdown: Record<string, unknown> = (existingDetails.rateBreakdown as Record<string, unknown>) || {};
 
       try {
-        const buildPricingReq = (coatingVal?: string, lensNameVal?: string, brandVal?: string) => ({
-          brand: brandVal || (targetBrand !== '-' ? targetBrand : pricingMaster.brand),
-          lensName: lensNameVal || (targetProduct !== '-' ? targetProduct : pricingMaster.lensName),
-          productName: lensNameVal || (targetProduct !== '-' ? targetProduct : pricingMaster.lensName),
+        const pricingReq = {
+          brand: targetBrand !== '-' ? targetBrand : pricingMaster.brand,
+          lensName: targetProduct !== '-' ? targetProduct : pricingMaster.lensName,
+          productName: targetProduct !== '-' ? targetProduct : pricingMaster.lensName,
           lensCategory: targetCategory,
           lensType: targetLensType !== '-' ? targetLensType : 'Single Vision',
           lensIndex: targetIndex || '1.50',
-          coating: coatingVal !== undefined ? coatingVal : (targetCoating || 'ARC'),
+          coating: targetCoating || 'ARC',
           colorName: targetColor !== '-' ? targetColor : undefined,
-          colorCharge: colorCharge > 0 ? colorCharge : undefined,
           dia: targetDia !== '-' ? targetDia : undefined,
           tintingName: targetTinting || undefined,
           fittingType: targetFitting !== '-' ? targetFitting : 'None (Uncut Lenses)',
@@ -383,96 +382,54 @@ export class LiveRioErpClient implements IRioErpClient {
           leftPrism: lPrism,
           leftQty: lQty,
           taxRate: 5,
-        });
+        };
 
-        // 1. First attempt: with user's exact coating and product
-        let pricingRes = await axios.post(
+        const pricingRes = await axios.post(
           `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
-          buildPricingReq(targetCoating || 'ARC'),
+          pricingReq,
           { timeout: 6000 }
         );
-
-        // 2. Second attempt: if base price was unmapped, query catalog master for base rate
-        if (!pricingRes.data?.success || (Number(pricingRes.data?.baseSalePrice) || 0) <= 0 || (Number(pricingRes.data?.grandTotal) || 0) <= 105) {
-          try {
-            const fallbackPricingRes = await axios.post(
-              `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
-              buildPricingReq('I Sight HC', pricingMaster.lensName, pricingMaster.brand),
-              { timeout: 6000 }
-            );
-            if (fallbackPricingRes.data?.success && (Number(fallbackPricingRes.data?.grandTotal) || 0) > 105) {
-              pricingRes = fallbackPricingRes;
-            }
-          } catch {
-            // keep initial pricingRes
-          }
-        }
 
         if (pricingRes.data && pricingRes.data.success) {
           const rates = pricingRes.data;
           const subTotal = Number(rates.subTotal) || 0;
           const taxAmount = Number(rates.taxAmount) || 0;
           const grandTotal = Number(rates.grandTotal) || (subTotal + taxAmount);
+          const effectiveTaxRate = Number(rates.taxRate) || 5;
 
-          if (grandTotal > 0 && subTotal > 100) {
+          if (grandTotal > 0) {
             calculatedAmount = grandTotal;
             calculatedRateBreakdown = rates;
             calculatedFinancials = {
               lensBaseSubTotal: Number(rates.baseSalePrice) || subTotal,
               grossSubTotal: subTotal,
               subTotal: subTotal,
-              specialCharges: Number(rates.specialCharges) || (isSpecialFitting ? 100 : 0),
-              fittingCharge: Number(rates.serviceChargesDetails?.fitCharge) || (isSpecialFitting ? 100 : 0),
+              specialCharges: Number(rates.serviceChargesDetails?.totalSpecialCharges) || Number(rates.specialCharges) || 0,
+              fittingCharge: Number(rates.serviceChargesDetails?.fitCharge) || 0,
+              tintingCharge: Number(rates.serviceChargesDetails?.tintCharge) || 0,
+              colorCharge: Number(rates.colorCharge) || Number(rates.serviceChargesDetails?.colorCharge) || 0,
+              diaCharge: Number(rates.serviceChargesDetails?.diaCharge) || 0,
               prismCharge: (Number(rates.rightDetails?.prismExtra) || 0) + (Number(rates.leftDetails?.prismExtra) || 0),
-              taxRate: 5,
+              taxRate: effectiveTaxRate,
               taxAmount: taxAmount,
               taxApplicable: 'CGST_SGST',
-              cgstRate: 2.5,
-              sgstRate: 2.5,
+              cgstRate: effectiveTaxRate / 2,
+              sgstRate: effectiveTaxRate / 2,
               cgstAmount: taxAmount / 2,
               sgstAmount: taxAmount / 2,
               amountReceived: 0,
               balance: grandTotal,
               netFinalTotal: subTotal,
               grandTotal: grandTotal,
+              serviceChargesDetails: rates.serviceChargesDetails || null,
+              specialPriceConfig: rates.specialPriceConfig || null,
+              appliedOffers: rates.appliedOffers || [],
+              rateSource: rates.rateSource || 'Backend Pricing Engine'
             };
           }
         }
       } catch (rateErr: unknown) {
         logger.warn(`[LiveRioErpClient] Rate calculation note for ${orderId}: ${String(rateErr)}`);
-      }
-
-      // Baseline fallback if rates are 0
-      if (calculatedAmount <= 0 || (colorCharge > 0 && (calculatedFinancials.specialCharges as number || 0) < colorCharge)) {
-        const basePrice = pricingMaster.defaultBase;
-        const fitCharge = isSpecialFitting ? 100 : 0;
-        const tintCharge = targetTinting ? 100 : 0;
-        const prismCharge = (rPrism > 0 ? rPrism * 200 : 0) + (lPrism > 0 ? lPrism * 200 : 0);
-        const totalSpecial = (Number(calculatedFinancials.specialCharges) || (fitCharge + tintCharge + prismCharge)) + (colorCharge > 0 && !(Number(calculatedFinancials.specialCharges) >= colorCharge) ? colorCharge : 0);
-        const subTotal = basePrice + totalSpecial;
-        const taxAmount = Math.round(subTotal * 0.05);
-        const grandTotal = subTotal + taxAmount;
-
-        calculatedAmount = grandTotal;
-        calculatedFinancials = {
-          lensBaseSubTotal: basePrice,
-          grossSubTotal: subTotal,
-          subTotal: subTotal,
-          specialCharges: totalSpecial,
-          fittingCharge: fitCharge,
-          prismCharge: prismCharge,
-          taxRate: 5,
-          taxAmount: taxAmount,
-          taxApplicable: 'CGST_SGST',
-          cgstRate: 2.5,
-          sgstRate: 2.5,
-          cgstAmount: taxAmount / 2,
-          sgstAmount: taxAmount / 2,
-          amountReceived: 0,
-          balance: grandTotal,
-          netFinalTotal: subTotal,
-          grandTotal: grandTotal,
-        };
       }
 
       const updatedDetails: Record<string, unknown> = {
