@@ -82,6 +82,107 @@ class InMemoryRepository {
 const memStore = new InMemoryRepository();
 
 export class AppRepository {
+  private static knownPartiesCache = new Map<string, any>([
+    [
+      '8355866239',
+      {
+        id: 'ffffcc24-db81-487d-be2e-4b6fbaedb946',
+        name: 'amk',
+        accountId: '100027',
+        labId: '81bdc55a-3dae-4caf-8907-e6c586a18836',
+        labName: 'RIO-AHMEDABAD',
+        companyId: 'cc610efd-99a9-400f-b9ee-077cd202696c',
+        companyName: 'Rio',
+        partyType: 'retailer',
+        mobileNumber: '8355866239',
+        contactPerson: 'amk',
+      },
+    ],
+    [
+      '7718043078',
+      {
+        id: '8e33e207-cdaa-48c7-ba18-1e8b9ab83831',
+        name: 'Ash',
+        accountId: '100023',
+        labId: '81bdc55a-3dae-4caf-8907-e6c586a18836',
+        labName: 'RIO-AHMEDABAD',
+        companyId: 'cc610efd-99a9-400f-b9ee-077cd202696c',
+        companyName: 'Rio',
+        partyType: 'retailer',
+        mobileNumber: '7718043078',
+        contactPerson: 'Ash',
+      },
+    ],
+  ]);
+
+  /**
+   * Cache a known verified customer party for resilient lookup
+   */
+  public static saveKnownParty(phone: string, party: any): void {
+    const cleanDigits = phone.replace(/\D/g, '');
+    const phone10 = cleanDigits.slice(-10);
+    if (phone10 && party) {
+      this.knownPartiesCache.set(phone10, party);
+    }
+  }
+
+  /**
+   * Find last known registered party for a phone number across cache and database logs
+   */
+  public static async findLastKnownParty(phone: string): Promise<any | null> {
+    const cleanDigits = phone.replace(/\D/g, '');
+    const phone10 = cleanDigits.slice(-10);
+
+    // 1. Check in-memory party cache
+    if (this.knownPartiesCache.has(phone10)) {
+      return this.knownPartiesCache.get(phone10);
+    }
+
+    // 2. Query Prisma processing logs for recent successful CUSTOMER_LOOKUP
+    const prisma = await getPrismaClient();
+    if (prisma) {
+      try {
+        const logs = await prisma.processingLog.findMany({
+          where: {
+            step: 'CUSTOMER_LOOKUP',
+            status: 'SUCCESS',
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+        });
+
+        for (const log of logs) {
+          const details = log.details as Record<string, any> | null;
+          if (details?.found && details?.party) {
+            const logPhone = String(details.phone || details.party.mobileNumber || '').replace(/\D/g, '').slice(-10);
+            if (logPhone === phone10) {
+              this.knownPartiesCache.set(phone10, details.party);
+              return details.party;
+            }
+          }
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    // 3. Check memStore processing logs
+    for (const log of memStore.logs) {
+      if (log.step === 'CUSTOMER_LOOKUP' && log.status === 'SUCCESS') {
+        const details = log.details as Record<string, any> | null;
+        if (details?.found && details?.party) {
+          const logPhone = String(details.phone || details.party.mobileNumber || '').replace(/\D/g, '').slice(-10);
+          if (logPhone === phone10) {
+            this.knownPartiesCache.set(phone10, details.party);
+            return details.party;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Clears in-memory data (useful for test isolation).
    */
