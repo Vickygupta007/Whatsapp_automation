@@ -271,11 +271,22 @@ export class OrderParser {
     if (hasExplicitLabels) {
       const sphMatch = /\b(?:sph|sphere)\s*[:=]?\s*([+-]?\d+(?:\.\d{1,2})?|plano|pl)\b/i.exec(cleanSegment);
       const cylMatch = /\b(?:cyl|cylinder)\s*[:=]?\s*([+-]?\d+(?:\.\d{1,2})?)\b/i.exec(cleanSegment);
-      const axisMatch = /\b(?:axis|ax|x)\s*[:=]?\s*(\d{1,3})\b/i.exec(cleanSegment);
+      const axisMatch = /\b(?:axis|ax|[xX×@*])\s*[:=]?\s*(\d{1,3})\b/i.exec(cleanSegment);
 
       if (sphMatch && sphMatch[1]) result.sph = this.formatDiopter(sphMatch[1]);
       if (cylMatch && cylMatch[1]) result.cyl = this.formatDiopter(cylMatch[1]);
       if (axisMatch && axisMatch[1]) result.axis = axisMatch[1];
+    }
+
+    // Check if an explicit axis is indicated by 'x', 'ax', 'axis', or '@' (e.g. "x 1", "x 90", "@ 180")
+    if (!result.axis) {
+      const explicitAxisMatch = /(?:axis|ax|[xX×@*])\s*[:=]?\s*(\d{1,3})\b/i.exec(cleanSegment);
+      if (explicitAxisMatch) {
+        const parsed = parseInt(explicitAxisMatch[1], 10);
+        if (parsed >= 1 && parsed <= 180) {
+          result.axis = String(parsed);
+        }
+      }
     }
 
     // 2. Positional parsing: If fields are still missing, extract numeric/diopter tokens
@@ -298,6 +309,7 @@ export class OrderParser {
         }
       }
 
+      let cylIndex = -1;
       if (!result.sph && numTokens.length >= 1) {
         result.sph = this.formatDiopter(numTokens[0]);
       }
@@ -308,19 +320,18 @@ export class OrderParser {
         const secondVal = parseFloat(numTokens[1]);
         if (numTokens[1].includes('.') || numTokens[1].startsWith('-') || numTokens[1].startsWith('+') || secondVal <= 6) {
           result.cyl = this.formatDiopter(numTokens[1]);
+          cylIndex = 1;
         }
       }
 
       if (!result.axis) {
         // Axis is typically the integer token (1 to 180), usually token 2 or token 3
-        for (let i = 1; i < numTokens.length; i++) {
+        const startIndex = cylIndex !== -1 ? cylIndex + 1 : 1;
+        for (let i = startIndex; i < numTokens.length; i++) {
           const val = parseInt(numTokens[i], 10);
           if (!numTokens[i].includes('.') && !isNaN(val) && val >= 1 && val <= 180) {
-            // Make sure this token wasn't already used as cyl
-            if (result.cyl !== this.formatDiopter(numTokens[i])) {
-              result.axis = String(val);
-              break;
-            }
+            result.axis = String(val);
+            break;
           }
         }
       }

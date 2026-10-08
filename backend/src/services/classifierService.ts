@@ -9,6 +9,7 @@ import {
 import { logger } from '../utils/logger.js';
 import { OrderValidator } from '../validators/orderValidator.js';
 import { RecentOrdersSessionService } from './recentOrdersSessionService.js';
+import { PendingOrderService } from './pendingOrderService.js';
 
 export function extractTargetOrderId(rawText?: string | null): string | null {
   const text = (rawText || '').trim();
@@ -75,8 +76,9 @@ export class ClassifierService {
     const cleanLower = lower.replace(/^[!.,?#\s]+|[!.,?#\s]+$/g, '');
 
     // Rule: CONFIRM_ORDER (Button click or text confirmation)
+    const hasPendingOrder = PendingOrderService.hasPendingOrder(phone);
     const CONFIRM_REGEX = /^(confirm_order|confirm_image_order|confirm(\s*order)?|yes|y|ok|okay|proceed|approve|place\s*order|✅\s*confirm(\s*order)?)$/i;
-    if (CONFIRM_REGEX.test(cleanLower)) {
+    if (CONFIRM_REGEX.test(cleanLower) || (hasPendingOrder && (cleanLower === '1' || cleanLower === 'confirm'))) {
       return {
         category: 'CONFIRM_ORDER',
         replyText: AUTO_REPLY_TEMPLATES.CONFIRM_ORDER,
