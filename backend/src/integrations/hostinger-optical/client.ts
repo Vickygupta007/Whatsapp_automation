@@ -384,31 +384,54 @@ export class HostingerOpticalClient implements IRioErpClient {
       const rightRx = orderData.rx?.right;
       const leftRx = orderData.rx?.left;
 
+      // Determine per-eye item price
+      let unitPrice = 300;
+      const rawPrice = (orderData as any).price || (orderData as any).salePrice || (orderData as any).rate || (orderData.details as any)?.price;
+      if (rawPrice && !isNaN(Number(rawPrice)) && Number(rawPrice) > 0) {
+        unitPrice = Number(rawPrice);
+      } else {
+        const pUpper = prodName.toUpperCase();
+        if (pUpper.includes('ON+')) unitPrice = 125;
+        else if (pUpper.includes('ORBIT')) unitPrice = 100;
+        else unitPrice = 300; // Blue cut item, crkt, and standard lens orders
+      }
+
+      let combinationId = '';
+      if (/blue\s*cut/i.test(prodName)) {
+        combinationId = '6aa9082f8514d341193f40ca';
+      } else if (/crkt/i.test(prodName)) {
+        combinationId = '6a9bdf2f2f08b986c7108b44';
+      } else if (/on\+/i.test(prodName)) {
+        combinationId = '6a9fea975e3129c28a920ec5';
+      }
+
       if (rightRx && (rightRx.active !== false)) {
         items.push({
           barcode: '',
           itemName: prodName,
           billItemName: '',
           vendorItemName: '',
-          unit: 'PCS',
-          dia,
+          unit: '',
+          dia: dia !== '70' ? dia : '',
           eye: 'R',
           sph: Number(rightRx.sph) || 0,
           cyl: Number(rightRx.cyl) || 0,
           axis: Number(rightRx.axis) || 0,
           add: Number(rightRx.addn) || 0,
           qty: Number(rightRx.qty) || 1,
-          salePrice: 100,
+          isInvoiced: false,
+          isChallaned: false,
+          salePrice: unitPrice,
           discount: 0,
-          totalAmount: 100 * (Number(rightRx.qty) || 1),
-          sellPrice: 100,
+          totalAmount: unitPrice * (Number(rightRx.qty) || 1),
+          sellPrice: 0,
           purchasePrice: 0,
-          combinationId: '',
+          combinationId,
           orderNo: '',
           remark: remarkStr,
-          vendor: '',
-          partyName: partyAccount,
-          itemStatus: 'Pending',
+          vendor: partyAccount || 'SADGURU OPTICALS',
+          partyName: 'SADGURU EYE WEAR',
+          itemStatus: 'In Progress',
           fulfilledQty: 0,
           cancelReason: '',
           companyId,
@@ -421,25 +444,27 @@ export class HostingerOpticalClient implements IRioErpClient {
           itemName: prodName,
           billItemName: '',
           vendorItemName: '',
-          unit: 'PCS',
-          dia,
-          eye: 'L',
+          unit: '',
+          dia: dia !== '70' ? dia : '',
+          eye: 'RL',
           sph: Number(leftRx.sph) || 0,
           cyl: Number(leftRx.cyl) || 0,
           axis: Number(leftRx.axis) || 0,
           add: Number(leftRx.addn) || 0,
           qty: Number(leftRx.qty) || 1,
-          salePrice: 100,
+          isInvoiced: false,
+          isChallaned: false,
+          salePrice: unitPrice,
           discount: 0,
-          totalAmount: 100 * (Number(leftRx.qty) || 1),
-          sellPrice: 100,
+          totalAmount: unitPrice * (Number(leftRx.qty) || 1),
+          sellPrice: 0,
           purchasePrice: 0,
-          combinationId: '',
+          combinationId,
           orderNo: '',
           remark: remarkStr,
-          vendor: '',
-          partyName: partyAccount,
-          itemStatus: 'Pending',
+          vendor: partyAccount || 'SADGURU OPTICALS',
+          partyName: 'SADGURU EYE WEAR',
+          itemStatus: 'In Progress',
           fulfilledQty: 0,
           cancelReason: '',
           companyId,
@@ -453,25 +478,27 @@ export class HostingerOpticalClient implements IRioErpClient {
           itemName: prodName,
           billItemName: '',
           vendorItemName: '',
-          unit: 'PCS',
-          dia,
-          eye: 'Both',
+          unit: '',
+          dia: dia !== '70' ? dia : '',
+          eye: 'R',
           sph: 0,
           cyl: 0,
           axis: 0,
           add: 0,
           qty: 2,
-          salePrice: 100,
+          isInvoiced: false,
+          isChallaned: false,
+          salePrice: unitPrice,
           discount: 0,
-          totalAmount: 200,
-          sellPrice: 100,
+          totalAmount: unitPrice * 2,
+          sellPrice: 0,
           purchasePrice: 0,
-          combinationId: '',
+          combinationId,
           orderNo: '',
           remark: remarkStr,
-          vendor: '',
-          partyName: partyAccount,
-          itemStatus: 'Pending',
+          vendor: partyAccount || 'SADGURU OPTICALS',
+          partyName: 'SADGURU EYE WEAR',
+          itemStatus: 'In Progress',
           fulfilledQty: 0,
           cancelReason: '',
           companyId,
@@ -479,20 +506,43 @@ export class HostingerOpticalClient implements IRioErpClient {
       }
 
       const totalQty = items.reduce((sum, it) => sum + (it.qty || 1), 0);
-      const totalAmount = items.reduce((sum, it) => sum + (it.totalAmount || 100), 0);
+      const subtotal = items.reduce((sum, it) => sum + (it.totalAmount || unitPrice), 0);
+      const cgstAmount = Math.round(subtotal * 0.06);
+      const sgstAmount = Math.round(subtotal * 0.06);
+      const taxesAmount = cgstAmount + sgstAmount;
+      const netAmount = subtotal + taxesAmount;
+
+      const taxes = [
+        {
+          taxName: 'CGST',
+          type: 'Additive',
+          percentage: 6,
+          amount: cgstAmount,
+          meta: { sourceTaxId: '6ab4d2465effc3d677175285' },
+          companyId,
+        },
+        {
+          taxName: 'SGST',
+          type: 'Additive',
+          percentage: 6,
+          amount: sgstAmount,
+          meta: { sourceTaxId: '6ab4d2465effc3d677175285' },
+          companyId,
+        },
+      ];
 
       const payload = {
         billData: {
           billSeries,
           billNo,
           date: new Date().toISOString(),
-          billType: 'Sale',
+          billType: 'GST 12%',
           godown: 'HO',
           bookedBy: 'Admin User',
           bankAccount: '',
         },
         partyData: {
-          CurrentBalance: { amount: 0, type: 'Dr' },
+          CurrentBalance: { amount: 0, type: 'Cr' },
           partyAccount,
           address: partyAddress,
           contactNumber: phone10,
@@ -502,26 +552,26 @@ export class HostingerOpticalClient implements IRioErpClient {
         },
         refNo: orderData.customerRefNo || '',
         items,
-        taxes: [],
+        taxes,
         orderQty: totalQty,
         usedQty: 0,
         balQty: totalQty,
-        grossAmount: totalAmount,
-        subtotal: totalAmount,
-        taxesAmount: 0,
-        netAmount: totalAmount,
+        grossAmount: subtotal,
+        subtotal: subtotal,
+        taxesAmount: taxesAmount,
+        netAmount: netAmount,
         paidAmount: 0,
-        dueAmount: totalAmount,
+        dueAmount: netAmount,
         paymentStatus: 'Unpaid',
         deliveryDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-        remark: `WhatsApp Order (Ref: ${orderData.customerRefNo || 'N/A'})${remarkStr ? ` | ${remarkStr}` : ''}`,
-        status: 'Pending',
-        parentStatus: 'Pending',
+        remark: orderData.customerRefNo ? `WhatsApp Order Ref: ${orderData.customerRefNo}` : '',
+        status: 'In Progress',
+        parentStatus: 'In Progress',
         time: new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(new Date()).toLowerCase(),
         companyId,
       };
 
-      logger.info(`[HostingerOpticalClient] Creating real lens sale order for ${partyAccount} (${billSeries}#${billNo})`);
+      logger.info(`[HostingerOpticalClient] Creating real lens sale order for ${partyAccount} (${billSeries}#${billNo}) with netAmount: ₹${netAmount}`);
 
       const res = await this.http.post('/api/lensSaleOrder/createLensSaleOrder', payload, {
         headers: { Authorization: `Bearer ${token}` },
@@ -530,7 +580,7 @@ export class HostingerOpticalClient implements IRioErpClient {
       if (res.data?.success) {
         const createdId = res.data?.data?._id || `${billSeries}#${billNo}`;
         const humanOrderId = `${billSeries}#${billNo}`;
-        logger.info(`[HostingerOpticalClient] Order created successfully: ${humanOrderId} (id: ${createdId})`);
+        logger.info(`[HostingerOpticalClient] Order created successfully: ${humanOrderId} (id: ${createdId}, netAmount: ₹${netAmount})`);
 
         return {
           success: true,
@@ -538,6 +588,7 @@ export class HostingerOpticalClient implements IRioErpClient {
           orderRef: orderData.customerRefNo || '',
           status: 'ORDER_CREATED',
           createdAt: res.data?.data?.createdAt || new Date().toISOString(),
+          amount: netAmount,
           message: 'Order created successfully on ARCO Optics system',
           party: {
             accountId: phone10,

@@ -707,7 +707,9 @@ ${leftEyeText}
             const lensesHeader = store.id === 'rio' ? 'Rio Digital Lenses' : `${store.name} Lenses`;
             const confirmedAmount = erpResponse.amount;
             const amountLine = (confirmedAmount && confirmedAmount > 0)
-              ? `• Total Amount: *₹${confirmedAmount}* (incl. 5% GST)\n`
+              ? (store.id === 'arco'
+                  ? `• Total Amount: *₹${confirmedAmount}* (incl. 12% GST)\n`
+                  : `• Total Amount: *₹${confirmedAmount}* (incl. 5% GST)\n`)
               : '';
 
             replyText = `✅ *ORDER CONFIRMED*
