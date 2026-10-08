@@ -836,6 +836,17 @@ export class LiveRioErpClient implements IRioErpClient {
             ? coating
             : (coating === 'Uncote' || coating === '-' || coating === '__' ? null : coating);
 
+        let resolvedLab = 'RIO-AHMEDABAD';
+        const uId = (found.orderId || cleanOrderId).toUpperCase();
+        if (uId.startsWith('AHM-')) resolvedLab = 'RIO-AHMEDABAD';
+        else if (uId.startsWith('SUR-')) resolvedLab = 'RIO-SURAT';
+        else if (uId.startsWith('MUM-')) resolvedLab = 'RIO-MUMBAI';
+        else if (uId.startsWith('PUN-')) resolvedLab = 'RIO-PUNE';
+        else if (uId.startsWith('DEL-')) resolvedLab = 'RIO-DELHI';
+        else if (uId.startsWith('RAJ-')) resolvedLab = 'RIO-RAJKOT';
+        else if (found.assignedLab || found.assignedLabName) resolvedLab = found.assignedLab || found.assignedLabName;
+        else if (found.labLocation && !found.labLocation.includes('HQ Lab') && !found.labLocation.includes('FreeForm')) resolvedLab = found.labLocation;
+
         const orderStatusData: RioErpOrderStatusData = {
           id: found._id || found.id,
           orderId: found.orderId || found.id || cleanOrderId,
@@ -845,7 +856,7 @@ export class LiveRioErpClient implements IRioErpClient {
           status: found.status || 'Pending Pickup',
           pendingAt: found.department || found.pendingAt || found.targetDept || found.status || 'Lab Processing',
           company: found.companyName || found.punchingCompanyName || 'Rio',
-          labLocation: found.labLocation || found.punchingLabName || 'RIO-AHMEDABAD',
+          labLocation: resolvedLab,
           product: found.productName || found.product || found.lensName || parsedDetails?.product || null,
           lensType: found.category || found.lensType || found.type || parsedDetails?.lensType || null,
           coating: cleanCoating,

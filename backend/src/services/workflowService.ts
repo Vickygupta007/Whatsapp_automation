@@ -106,6 +106,43 @@ export function isOrderBelongingToStore(
   return false;
 }
 
+/**
+ * Resolves the accurate regional servicing lab name for an optical order.
+ * Uses order prefix (e.g. AHM- -> RIO-AHMEDABAD), party assigned lab, or store defaults,
+ * while preventing technical production HQ factory names (e.g. "Mumbai Digital FreeForm HQ Lab")
+ * from replacing regional servicing lab names.
+ */
+export function resolveOrderLabName(
+  orderId?: string | null,
+  rawLabLocation?: string | null,
+  partyLabName?: string | null,
+  storeId?: string
+): string {
+  const cleanId = (orderId || '').trim().toUpperCase();
+  if (cleanId.startsWith('AHM-')) return 'RIO-AHMEDABAD';
+  if (cleanId.startsWith('SUR-')) return 'RIO-SURAT';
+  if (cleanId.startsWith('MUM-')) return 'RIO-MUMBAI';
+  if (cleanId.startsWith('PUN-')) return 'RIO-PUNE';
+  if (cleanId.startsWith('DEL-')) return 'RIO-DELHI';
+  if (cleanId.startsWith('RAJ-')) return 'RIO-RAJKOT';
+  if (cleanId.startsWith('ARCO-') || cleanId.startsWith('S(') || cleanId.startsWith('S-')) return 'ARCO-LAB';
+
+  if (partyLabName && partyLabName.trim()) {
+    return partyLabName.trim();
+  }
+
+  if (
+    rawLabLocation &&
+    !rawLabLocation.includes('HQ Lab') &&
+    !rawLabLocation.includes('FreeForm') &&
+    rawLabLocation.trim() !== ''
+  ) {
+    return rawLabLocation.trim();
+  }
+
+  return storeId === 'arco' ? 'ARCO-LAB' : 'RIO-AHMEDABAD';
+}
+
 export class WorkflowService {
   private erpAdapter: IRioErpClient;
   private hasCustomClient: boolean;
@@ -853,7 +890,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
                 (ord as any).orderTime || (ord as any).time || (ord as any).details?.time
               );
               const timeLine = formattedTime ? `\n• Time: *${formattedTime}*` : '';
-              const lab = ord.labLocation || party?.labName || `${store.name}-LAB`;
+              const lab = resolveOrderLabName(ord.orderId || targetOrderId, ord.labLocation, party?.labName, store.id);
               const cust = ord.customer || party?.name || 'Customer';
               const prod = ord.product || localDbOrder?.product || '';
               const lens = (ord.lensType || localDbOrder?.lensType) ? ` (${ord.lensType || localDbOrder?.lensType})` : '';
@@ -898,6 +935,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
               const timeLine = formattedTime ? `\n• Time: *${formattedTime}*` : '';
               const realCoating = (localDbOrder.coating && localDbOrder.coating !== '-' && localDbOrder.coating !== '__' && localDbOrder.coating.toUpperCase() !== 'UNCOTE') ? ` (${localDbOrder.coating})` : '';
               const lens = localDbOrder.lensType ? ` (${localDbOrder.lensType})` : '';
+              const lab = resolveOrderLabName(localDbOrder.erpOrderId || targetOrderId, null, party?.labName, store.id);
 
               replyText = `🔍 *ORDER STATUS*
 
@@ -908,7 +946,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
 📋 *Details:*
 • Ref: *${localDbOrder.customerRefNo || 'N/A'}*
 • Product: *${localDbOrder.product || ''}*${lens}${realCoating}
-• Lab: *${party?.labName || `${store.name}-LAB`}*
+• Lab: *${lab}*
 • Account: *${party?.name || 'Customer'}*
 • Date: *${formattedDate}*${timeLine}
 
