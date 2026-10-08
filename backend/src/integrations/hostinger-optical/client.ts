@@ -628,7 +628,7 @@ export class HostingerOpticalClient implements IRioErpClient {
           creditLimit,
           creditDays,
         },
-        refNo: orderData.customerRefNo || '',
+        refNo: orderData.customerRefNo || (orderData.remarks ? String(orderData.remarks).slice(0, 30) : `WA-${Date.now().toString().slice(-6)}`),
         items,
         taxes,
         orderQty: totalQty,
@@ -642,7 +642,11 @@ export class HostingerOpticalClient implements IRioErpClient {
         dueAmount: netAmount,
         paymentStatus: 'Unpaid',
         deliveryDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-        remark: orderData.customerRefNo ? `WhatsApp Order Ref: ${orderData.customerRefNo}` : '',
+        remark: orderData.customerRefNo
+          ? `WhatsApp Order Ref: ${orderData.customerRefNo}`
+          : orderData.remarks
+          ? String(orderData.remarks)
+          : 'WhatsApp Order',
         status: 'In Progress',
         parentStatus: 'In Progress',
         time: new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).format(new Date()).toLowerCase(),

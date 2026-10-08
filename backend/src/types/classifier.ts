@@ -63,17 +63,14 @@ Remark: Test Order
 📸 *Tip:* It's even faster to simply send a photo of the prescription slip!`;
 
 export const ARCO_ORDER_FORMAT = `📝 Order Format Guide
-
 You can copy, edit and send this format:
 
-Ref: 
 Product: 
 Fit: 
 R: -1.00 / -0.50 x 90
 L: -1.25 / -0.25 x 180
 Add: 
 Remark: 
-
 📸 Tip: It's even faster to just send a photo of the prescription slip!`;
 
 export const AUTO_REPLY_TEMPLATES: Record<MessageCategory, string> = {
