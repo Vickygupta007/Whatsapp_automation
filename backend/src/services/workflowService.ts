@@ -804,7 +804,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
             const ord = statusResult.order;
             const ordPartyId = ord?.partyId || (ord as any)?.details?.partyId;
             const ordAccountId = (ord as any)?.details?.partyAccountId;
-            const ordCustomer = ((ord as any)?.customer || (ord as any)?.details?.customer || '').trim().toLowerCase();
+            const ordCustomer = ((ord as any)?.customer || (ord as any)?.details?.customer || (ord as any)?.partyName || '').trim().toLowerCase();
             const ordPhone = ((ord as any)?.details?.whatsappSenderPhone || (ord as any)?.details?.phone || (ord as any)?.phone || '').replace(/\D/g, '').slice(-10);
 
             const cleanDbPhone = localDbOrder?.phone ? localDbOrder.phone.replace(/\D/g, '').slice(-10) : '';
@@ -813,8 +813,11 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
               (ordPartyId && partyId && ordPartyId === partyId) ||
               (ordAccountId && partyAccountId && ordAccountId === partyAccountId) ||
               (ordCustomer && partyName && (ordCustomer.includes(partyName) || partyName.includes(ordCustomer))) ||
+              (partyAccountId && ordCustomer && ordCustomer.includes(partyAccountId.toLowerCase())) ||
               (ordPhone && cleanCustomerPhone && ordPhone === cleanCustomerPhone) ||
-              (cleanDbPhone && cleanCustomerPhone && cleanDbPhone === cleanCustomerPhone)
+              (cleanDbPhone && cleanCustomerPhone && cleanDbPhone === cleanCustomerPhone) ||
+              (partyAccountId && (ord as any)?.custRefNo && String((ord as any).custRefNo).includes(partyAccountId)) ||
+              (partyAccountId && (ord as any)?.customerRefNo && String((ord as any).customerRefNo).includes(partyAccountId))
             );
 
             if (statusResult.success && ord && belongsToCustomer) {

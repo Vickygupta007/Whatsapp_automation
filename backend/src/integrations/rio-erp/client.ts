@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../../config/env.js';
-import { CustomerLookupResult, DeliveryTaskData, IRioErpClient, RioErpOrderRequest, RioErpOrderResponse, RioErpOrderStatusResponse, RioErpOrdersListResponse } from '../../types/erp.js';
+import { CustomerLookupResult, DeliveryTaskData, IRioErpClient, RioErpOrderRequest, RioErpOrderResponse, RioErpOrderStatusData, RioErpOrderStatusResponse, RioErpOrdersListResponse } from '../../types/erp.js';
 import { logger } from '../../utils/logger.js';
 import { normalizePhone } from '../../utils/phoneNormalizer.js';
 import { RioErpMapper } from './mappers.js';
@@ -792,6 +792,76 @@ export class LiveRioErpClient implements IRioErpClient {
     const cleanOrderId = orderId.trim();
     logger.info(`[LiveRioErpClient] Querying order status from Rio ERP for orderId: ${cleanOrderId}`);
 
+    // Helper to search order in Rio ERP staff API (/api/sales/orders) using staff bearer token
+    const findOrderViaStaffApi = async (): Promise<RioErpOrderStatusData | null> => {
+      try {
+        const token = await this.getStaffToken();
+        if (!token) return null;
+
+        const salesRes = await axios.get(`${config.RIO_ERP_BASE_URL}/api/sales/orders`, {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 6000,
+        });
+        const salesOrders = Array.isArray(salesRes.data?.orders)
+          ? salesRes.data.orders
+          : Array.isArray(salesRes.data)
+          ? salesRes.data
+          : [];
+
+        const targetLower = cleanOrderId.toLowerCase();
+        const found = salesOrders.find((o: any) => {
+          const oId = String(o.orderId || o.id || o._id || '').toLowerCase();
+          const cRef = String(o.customerRefNo || o.custRefNo || o.partyRefNo || '').toLowerCase();
+          return oId === targetLower || cRef === targetLower || oId.includes(targetLower) || targetLower.includes(oId);
+        });
+
+        if (!found) return null;
+
+        let parsedDetails: any = null;
+        if (typeof found.details === 'string') {
+          try { parsedDetails = JSON.parse(found.details); } catch {}
+        } else if (typeof found.details === 'object') {
+          parsedDetails = found.details;
+        }
+
+        const coating =
+          found.coatingName ||
+          parsedDetails?.coatingName ||
+          parsedDetails?.coating ||
+          found.coating ||
+          null;
+
+        const cleanCoating =
+          coating && coating !== 'ARC' && coating !== '-' && coating !== '__' && coating.toUpperCase() !== 'UNCOTE'
+            ? coating
+            : (coating === 'Uncote' || coating === '-' || coating === '__' ? null : coating);
+
+        const orderStatusData: RioErpOrderStatusData = {
+          id: found._id || found.id,
+          orderId: found.orderId || found.id || cleanOrderId,
+          customerRefNo: found.customerRefNo || found.custRefNo || found.partyRefNo || null,
+          customer: found.customer || found.partyName || parsedDetails?.customer || null,
+          orderDate: found.createdAt || found.orderDate || null,
+          status: found.status || 'Pending Pickup',
+          pendingAt: found.department || found.pendingAt || found.targetDept || found.status || 'Lab Processing',
+          company: found.companyName || found.punchingCompanyName || 'Rio',
+          labLocation: found.labLocation || found.punchingLabName || 'RIO-AHMEDABAD',
+          product: found.productName || found.product || found.lensName || parsedDetails?.product || null,
+          lensType: found.category || found.lensType || found.type || parsedDetails?.lensType || null,
+          coating: cleanCoating,
+          index: found.indexKey || found.index || parsedDetails?.index || null,
+          amount: found.financials?.grandTotal ?? found.amount ?? null,
+          challanNo: found.challanNo || null,
+          details: parsedDetails || found.details,
+        };
+
+        return orderStatusData;
+      } catch (staffErr) {
+        logger.warn(`[LiveRioErpClient] Staff API fallback lookup failed for order ${cleanOrderId}: ${String(staffErr)}`);
+        return null;
+      }
+    };
+
     try {
       const response = await this.http.get('/api/integrations/whatsapp/order-status', {
         params: { orderId: cleanOrderId },
@@ -827,31 +897,32 @@ export class LiveRioErpClient implements IRioErpClient {
         } catch {
           // Non-blocking fallback
         }
-      }
 
+        return {
+          success: true,
+          order,
+          rawResponse: response.data,
+        };
+      }
+    } catch (err: unknown) {
+      logger.warn(`[LiveRioErpClient] Direct /order-status endpoint failed: ${String(err)}. Checking Rio ERP staff API fallback...`);
+    }
+
+    // Resilient Fallback: check Rio ERP staff API (/api/sales/orders)
+    const staffOrder = await findOrderViaStaffApi();
+    if (staffOrder) {
+      logger.info(`[LiveRioErpClient] Found order ${cleanOrderId} via Rio ERP staff API: status=${staffOrder.status}`);
       return {
         success: true,
-        order,
-        rawResponse: response.data,
+        order: staffOrder,
+        rawResponse: staffOrder,
       };
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        if (err.response?.status === 404) {
-          return {
-            success: false,
-            message: err.response?.data?.message || `Order "${cleanOrderId}" not found.`,
-            rawResponse: err.response?.data,
-          };
-        }
-        logger.error(`[LiveRioErpClient] Order status query failed: ${err.message}`, {
-          status: err.response?.status,
-          data: err.response?.data,
-        });
-      } else {
-        logger.error(`[LiveRioErpClient] Unexpected order status query error: ${String(err)}`);
-      }
-      throw err;
     }
+
+    return {
+      success: false,
+      message: `Order "${cleanOrderId}" not found.`,
+    };
   }
 
   public async getOrdersByPhone(phone: string): Promise<RioErpOrdersListResponse> {
