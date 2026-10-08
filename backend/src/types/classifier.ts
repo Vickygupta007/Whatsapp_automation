@@ -68,11 +68,6 @@ You can copy, edit and send this format:
 
 Ref: 
 Product: 
-Type: 
-Index: 
-Coating: 
-Dia: 
-Color: 
 Fit: 
 R: -1.00 / -0.50 x 90
 L: -1.25 / -0.25 x 180
