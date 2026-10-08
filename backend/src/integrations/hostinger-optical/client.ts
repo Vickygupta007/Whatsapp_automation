@@ -49,6 +49,60 @@ export class HostingerOpticalClient implements IRioErpClient {
     return '';
   }
 
+  private async getPriceByPower(
+    token: string,
+    prodName: string,
+    sph: number,
+    cyl: number,
+    axis: number,
+    add: number,
+    eye: 'R' | 'L' | 'RL'
+  ): Promise<{ salePrice: number; combinationId?: string } | null> {
+    try {
+      const powersRes = await this.http.get('/api/lens/getAllLensPower', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const items = Array.isArray(powersRes.data)
+        ? powersRes.data
+        : powersRes.data?.data || [];
+
+      if (!items || items.length === 0) return null;
+
+      const cleanProd = prodName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const matched =
+        items.find((it: any) => {
+          const name = String(it.productName || it.itemName || it.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          return name && (cleanProd.includes(name) || name.includes(cleanProd));
+        }) ||
+        items.find((it: any) => /blue\s*cut/i.test(prodName) && /blue\s*cut/i.test(it.productName || '')) ||
+        items[0];
+
+      if (!matched?._id) return null;
+
+      const priceRes = await this.http.get('/api/lens/get-price-by-power', {
+        params: {
+          itemId: matched._id,
+          sph,
+          cyl,
+          axis,
+          add,
+          eye: eye === 'L' ? 'RL' : eye,
+        },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (priceRes.data?.success && typeof priceRes.data.salePrice === 'number' && priceRes.data.salePrice > 0) {
+        return {
+          salePrice: priceRes.data.salePrice,
+          combinationId: matched.addGroups?.[0]?.combinations?.[0] || matched.powerGroups?.[0]?._id,
+        };
+      }
+    } catch (err) {
+      logger.warn(`[HostingerOpticalClient] get-price-by-power live check note: ${err}`);
+    }
+    return null;
+  }
+
   public async findCustomerByPhone(phone: string): Promise<CustomerLookupResult> {
     const cleanDigits = phone.replace(/\D/g, '');
     const phone10 = cleanDigits.slice(-10);
@@ -406,6 +460,18 @@ export class HostingerOpticalClient implements IRioErpClient {
       }
 
       if (rightRx && (rightRx.active !== false)) {
+        const rightSph = Number(rightRx.sph) || 0;
+        const rightCyl = Number(rightRx.cyl) || 0;
+        const rightAxis = Number(rightRx.axis) || 0;
+        const rightAdd = Number(rightRx.addn) || 0;
+        let rightUnitPrice = unitPrice;
+
+        const liveRight = await this.getPriceByPower(token, prodName, rightSph, rightCyl, rightAxis, rightAdd, 'R');
+        if (liveRight) {
+          rightUnitPrice = liveRight.salePrice;
+          if (liveRight.combinationId) combinationId = liveRight.combinationId;
+        }
+
         items.push({
           barcode: '',
           itemName: prodName,
@@ -414,16 +480,16 @@ export class HostingerOpticalClient implements IRioErpClient {
           unit: '',
           dia: dia !== '70' ? dia : '',
           eye: 'R',
-          sph: Number(rightRx.sph) || 0,
-          cyl: Number(rightRx.cyl) || 0,
-          axis: Number(rightRx.axis) || 0,
-          add: Number(rightRx.addn) || 0,
+          sph: rightSph,
+          cyl: rightCyl,
+          axis: rightAxis,
+          add: rightAdd,
           qty: Number(rightRx.qty) || 1,
           isInvoiced: false,
           isChallaned: false,
-          salePrice: unitPrice,
+          salePrice: rightUnitPrice,
           discount: 0,
-          totalAmount: unitPrice * (Number(rightRx.qty) || 1),
+          totalAmount: rightUnitPrice * (Number(rightRx.qty) || 1),
           sellPrice: 0,
           purchasePrice: 0,
           combinationId,
@@ -439,6 +505,18 @@ export class HostingerOpticalClient implements IRioErpClient {
       }
 
       if (leftRx && (leftRx.active !== false)) {
+        const leftSph = Number(leftRx.sph) || 0;
+        const leftCyl = Number(leftRx.cyl) || 0;
+        const leftAxis = Number(leftRx.axis) || 0;
+        const leftAdd = Number(leftRx.addn) || 0;
+        let leftUnitPrice = unitPrice;
+
+        const liveLeft = await this.getPriceByPower(token, prodName, leftSph, leftCyl, leftAxis, leftAdd, 'RL');
+        if (liveLeft) {
+          leftUnitPrice = liveLeft.salePrice;
+          if (liveLeft.combinationId && !combinationId) combinationId = liveLeft.combinationId;
+        }
+
         items.push({
           barcode: '',
           itemName: prodName,
@@ -447,16 +525,16 @@ export class HostingerOpticalClient implements IRioErpClient {
           unit: '',
           dia: dia !== '70' ? dia : '',
           eye: 'RL',
-          sph: Number(leftRx.sph) || 0,
-          cyl: Number(leftRx.cyl) || 0,
-          axis: Number(leftRx.axis) || 0,
-          add: Number(leftRx.addn) || 0,
+          sph: leftSph,
+          cyl: leftCyl,
+          axis: leftAxis,
+          add: leftAdd,
           qty: Number(leftRx.qty) || 1,
           isInvoiced: false,
           isChallaned: false,
-          salePrice: unitPrice,
+          salePrice: leftUnitPrice,
           discount: 0,
-          totalAmount: unitPrice * (Number(leftRx.qty) || 1),
+          totalAmount: leftUnitPrice * (Number(leftRx.qty) || 1),
           sellPrice: 0,
           purchasePrice: 0,
           combinationId,
