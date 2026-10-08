@@ -195,6 +195,88 @@ export class LiveRioErpClient implements IRioErpClient {
     const lAxis = orderData.rx?.left?.axis !== undefined && orderData.rx?.left?.axis !== null ? Number(orderData.rx.left.axis) : (lCyl !== 0 ? 90 : 0);
     const lQty = orderData.rx?.left?.qty || 1;
 
+    const targetDia = orderData.dia || orderData.diameter || (orderData.details as any)?.dia || null;
+    const targetColor = orderData.color || orderData.colorName || orderData.tintColor || orderData.tint || null;
+    const targetTinting = orderData.tintingName || orderData.tinting || null;
+    const targetFitting = orderData.fitting || orderData.fittingType || orderData.fit || null;
+    const targetRemarks = orderData.remarks || orderData.remark || orderData.specialRemark || null;
+    const rPrism = orderData.rx?.right?.prism ? parseFloat(String(orderData.rx.right.prism)) : 0;
+    const lPrism = orderData.rx?.left?.prism ? parseFloat(String(orderData.rx.left.prism)) : 0;
+
+    // Determine baseline catalog price
+    let basePrice = 680; // default for HYPE B B 1.56
+    const pUpper = targetProduct.toUpperCase();
+    const bUpper = targetBrand.toUpperCase();
+    if (pUpper.includes('HYPE') || bUpper.includes('HYPE')) basePrice = 680;
+    else if (pUpper.includes('O2') || bUpper.includes('O2')) basePrice = 1000;
+    else if (pUpper.includes('CR') || bUpper.includes('BIFOCAL')) basePrice = 5000;
+    else if (pUpper.includes('I SIGHT') || bUpper.includes('ISIGHT')) basePrice = 500;
+
+    let prismCharge = (rPrism > 0 ? rPrism * 200 : 0) + (lPrism > 0 ? lPrism * 200 : 0);
+    let fittingCharge = targetFitting && targetFitting.toLowerCase() !== 'none' && targetFitting !== '-' ? 100 : 0;
+    let tintingCharge = targetTinting && targetTinting.toLowerCase() !== 'none' && targetTinting !== '-' ? 100 : 0;
+    let totalSpecial = prismCharge + fittingCharge + tintingCharge;
+    let subTotal = basePrice + totalSpecial;
+    let taxAmount = Math.round(subTotal * 0.05);
+    let grandTotal = subTotal + taxAmount;
+
+    // Query live Rio ERP calculate-rates API with staff bearer token
+    try {
+      const pricingRes = await axios.post(
+        `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
+        {
+          brand: targetBrand,
+          productName: targetProduct,
+          lensName: targetProduct,
+          lensCategory: targetCategory,
+          lensType: targetLensType,
+          lensIndex: targetIndex,
+          coating: targetCoating,
+          partyName: targetPartyName,
+          rightActive: true, rightSph: rSph, rightCyl: rCyl, rightAxis: rAxis, rightQty: rQty,
+          leftActive: true, leftSph: lSph, leftCyl: lCyl, leftAxis: lAxis, leftQty: lQty,
+          colorName: targetColor, dia: targetDia, tintingName: targetTinting, fittingType: targetFitting,
+          taxRate: 5,
+        },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 6000 }
+      );
+      if (pricingRes.data && pricingRes.data.success && Number(pricingRes.data.baseSalePrice) > 0) {
+        const rates = pricingRes.data;
+        basePrice = Number(rates.baseSalePrice) || basePrice;
+        subTotal = Number(rates.subTotal) || subTotal;
+        taxAmount = Number(rates.taxAmount) || taxAmount;
+        grandTotal = Number(rates.grandTotal) || (subTotal + taxAmount);
+        totalSpecial = Number(rates.specialCharges) || totalSpecial;
+        fittingCharge = Number(rates.serviceChargesDetails?.fitCharge) || fittingCharge;
+        tintingCharge = Number(rates.serviceChargesDetails?.tintCharge) || tintingCharge;
+        prismCharge = (Number(rates.rightDetails?.prismExtra) || 0) + (Number(rates.leftDetails?.prismExtra) || 0) || prismCharge;
+      }
+    } catch (rateErr) {
+      logger.warn(`[LiveRioErpClient] Live calculate-rates note: ${String(rateErr)}`);
+    }
+
+    const financials = {
+      lensBaseSubTotal: basePrice,
+      lensBasePrice: basePrice,
+      grossSubTotal: subTotal,
+      subTotal: subTotal,
+      specialCharges: totalSpecial,
+      fittingCharge: fittingCharge,
+      tintingCharge: tintingCharge,
+      prismCharge: prismCharge,
+      taxRate: 5,
+      taxAmount: taxAmount,
+      taxApplicable: 'CGST_SGST',
+      cgstRate: 2.5,
+      sgstRate: 2.5,
+      cgstAmount: taxAmount / 2,
+      sgstAmount: taxAmount / 2,
+      amountReceived: 0,
+      balance: grandTotal,
+      netFinalTotal: subTotal,
+      grandTotal: grandTotal,
+    };
+
     const payload: Record<string, any> = {
       customer: targetPartyName,
       partyName: targetPartyName,
@@ -215,6 +297,38 @@ export class LiveRioErpClient implements IRioErpClient {
       leftCyl: lCyl,
       leftAxis: lAxis > 0 ? lAxis : (lCyl !== 0 ? 90 : 0),
       leftQty: lQty,
+      color: targetColor,
+      dia: targetDia,
+      tinting: targetTinting,
+      fitting: targetFitting,
+      fittingType: targetFitting,
+      remarks: targetRemarks,
+      remark: targetRemarks,
+      specialRemark: targetRemarks,
+      amount: grandTotal,
+      grandTotal: grandTotal,
+      subTotal: subTotal,
+      taxAmount: taxAmount,
+      taxRate: 5,
+      basePrice: basePrice,
+      lensBasePrice: basePrice,
+      rightRate: Math.round(basePrice / 2),
+      leftRate: Math.round(basePrice / 2),
+      financials: financials,
+      details: JSON.stringify({
+        customer: targetPartyName,
+        partyName: targetPartyName,
+        amount: grandTotal,
+        grandTotal: grandTotal,
+        subTotal: subTotal,
+        financials: financials,
+        color: targetColor,
+        dia: targetDia,
+        tinting: targetTinting,
+        fitting: targetFitting,
+        fittingType: targetFitting,
+        remarks: targetRemarks,
+      }),
     };
 
     const res = await axios.post(`${config.RIO_ERP_BASE_URL}/api/sales/orders`, payload, {
@@ -225,17 +339,14 @@ export class LiveRioErpClient implements IRioErpClient {
     const createdOrder = res.data;
     const orderId = createdOrder.orderId || createdOrder.id;
 
-    if (orderId) {
-      const syncResult = await this.syncRioErpOrderDetails(orderId, orderData);
-      return {
-        success: true,
-        orderId,
-        status: createdOrder.status || 'ORDER_CONFIRMED',
-        createdAt: createdOrder.createdAt || new Date().toISOString(),
-        amount: syncResult?.amount || createdOrder.amount || 0,
-        rawResponse: createdOrder,
-      };
-    }
+    return {
+      success: true,
+      orderId,
+      status: createdOrder.status || 'ORDER_CONFIRMED',
+      createdAt: createdOrder.createdAt || new Date().toISOString(),
+      amount: createdOrder.amount || grandTotal,
+      rawResponse: createdOrder,
+    };
 
     return {
       success: true,
@@ -529,7 +640,7 @@ export class LiveRioErpClient implements IRioErpClient {
         let pricingRes = await axios.post(
           `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
           pricingReq,
-          { timeout: 6000 }
+          { headers: { Authorization: `Bearer ${token}` }, timeout: 6000 }
         );
 
         // If a specific coating like 'ARC' caused 0 baseSalePrice match in lensPriceMaster,
@@ -544,7 +655,7 @@ export class LiveRioErpClient implements IRioErpClient {
             const fallbackRes = await axios.post(
               `${config.RIO_ERP_BASE_URL}/api/pricing/calculate-rates`,
               { ...pricingReq, coating: '' },
-              { timeout: 6000 }
+              { headers: { Authorization: `Bearer ${token}` }, timeout: 6000 }
             );
             if (
               fallbackRes.data &&
@@ -599,6 +710,39 @@ export class LiveRioErpClient implements IRioErpClient {
         }
       } catch (rateErr: unknown) {
         logger.warn(`[LiveRioErpClient] Rate calculation note for ${orderId}: ${String(rateErr)}`);
+      }
+
+      if (calculatedAmount === 0 && pricingMaster.defaultBase > 0) {
+        const fallbackBase = pricingMaster.defaultBase;
+        const fallbackPrism = (rPrism > 0 ? rPrism * 200 : 0) + (lPrism > 0 ? lPrism * 200 : 0);
+        const fallbackFitting = targetFitting && targetFitting.toLowerCase() !== 'none' && targetFitting !== '-' ? 100 : 0;
+        const fallbackTinting = targetTinting && targetTinting.toLowerCase() !== 'none' && targetTinting !== '-' ? 100 : 0;
+        const fallbackSpecial = fallbackPrism + fallbackFitting + fallbackTinting;
+        const fallbackSubTotal = fallbackBase + fallbackSpecial;
+        const fallbackTax = Math.round(fallbackSubTotal * 0.05);
+        const fallbackGrandTotal = fallbackSubTotal + fallbackTax;
+        calculatedAmount = fallbackGrandTotal;
+        calculatedFinancials = {
+          lensBaseSubTotal: fallbackBase,
+          lensBasePrice: fallbackBase,
+          grossSubTotal: fallbackSubTotal,
+          subTotal: fallbackSubTotal,
+          specialCharges: fallbackSpecial,
+          fittingCharge: fallbackFitting,
+          tintingCharge: fallbackTinting,
+          prismCharge: fallbackPrism,
+          taxRate: 5,
+          taxAmount: fallbackTax,
+          taxApplicable: 'CGST_SGST',
+          cgstRate: 2.5,
+          sgstRate: 2.5,
+          cgstAmount: fallbackTax / 2,
+          sgstAmount: fallbackTax / 2,
+          amountReceived: 0,
+          balance: fallbackGrandTotal,
+          netFinalTotal: fallbackSubTotal,
+          grandTotal: fallbackGrandTotal,
+        };
       }
 
       const updatedDetails: Record<string, unknown> = {
