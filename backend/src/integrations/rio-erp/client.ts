@@ -80,17 +80,18 @@ export class LiveRioErpClient implements IRioErpClient {
       };
     }
 
-    // 3. Resilient Fallback B: Query Rio ERP staff API (/api/accounts) using staff token
+    // 3. Resilient Fallback B: Query Rio ERP staff API (/api/accounts and /api/onboarding) using staff token
     try {
       const token = await this.getStaffToken();
       if (token) {
+        // Check master accounts
         const accRes = await axios.get(`${config.RIO_ERP_BASE_URL}/api/accounts`, {
           headers: { Authorization: `Bearer ${token}` },
           timeout: 5000,
         });
         if (Array.isArray(accRes.data)) {
           const match = accRes.data.find((a: any) => {
-            const m = String(a.MobileNumber || a.mobileNumber || a.phone || '').replace(/\D/g, '').slice(-10);
+            const m = String(a.MobileNumber || a.mobileNumber || a.phone || a.contactNumber || '').replace(/\D/g, '').slice(-10);
             return m === phone10;
           });
           if (match) {
@@ -122,9 +123,58 @@ export class LiveRioErpClient implements IRioErpClient {
             };
           }
         }
+
+        // If not found in /api/accounts, check /api/onboarding for approved clients onboarded via website
+        const onbRes = await axios.get(`${config.RIO_ERP_BASE_URL}/api/onboarding`, {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 5000,
+        });
+        if (Array.isArray(onbRes.data)) {
+          const onbMatch = onbRes.data.find((o: any) => {
+            const isApproved = ['approved', 'active', 'verified'].includes(String(o.status || '').toLowerCase());
+            if (!isApproved) return false;
+            const m1 = String(o.mobile || o.phone || '').replace(/\D/g, '').slice(-10);
+            const m2 = String(o.formData?.mobile || o.formData?.phone || o.formData?.alternateMobile || '').replace(/\D/g, '').slice(-10);
+            return m1 === phone10 || m2 === phone10;
+          });
+          if (onbMatch) {
+            const resolvedName = (onbMatch.partyName || onbMatch.shopName || onbMatch.formData?.partyName || onbMatch.formData?.shopName || 'Valued Customer').trim();
+            const resolvedAccountId = onbMatch.formData?.approvedAccountId || onbMatch.approvedAccountId || onbMatch.requestId || 'ACC';
+            const labLoc = String(onbMatch.labLocation || onbMatch.company || '').toLowerCase();
+            const resolvedLab = labLoc.includes('mumbai') || labLoc.includes('maharashtra') ? 'RIO-MAHARASHTRA' : 'RIO-AHMEDABAD';
+
+            const party = {
+              id: onbMatch.id || onbMatch._id || onbMatch.requestId,
+              name: resolvedName,
+              accountId: resolvedAccountId,
+              labId: onbMatch.labId || '81bdc55a-3dae-4caf-8907-e6c586a18836',
+              labName: resolvedLab,
+              companyId: onbMatch.companyId,
+              companyName: onbMatch.company || 'Rio',
+              partyType: onbMatch.partyType || 'retailer',
+              mobileNumber: phone10,
+              contactPerson: onbMatch.contactPerson || onbMatch.ownerName || onbMatch.formData?.contactPerson,
+            };
+            AppRepository.saveKnownParty(phone, party);
+            logger.info(`[LiveRioErpClient] Found customer in Rio approved onboarding for ${phone10}: ${party.name} (${party.accountId})`);
+            return {
+              found: true,
+              party,
+              customer: {
+                id: party.id,
+                accountId: party.accountId,
+                name: party.name,
+                phone,
+                labName: party.labName,
+                isRegistered: true,
+                status: 'ACTIVE',
+              },
+            };
+          }
+        }
       }
     } catch (accErr) {
-      logger.warn(`[LiveRioErpClient] Staff accounts lookup failed: ${String(accErr)}`);
+      logger.warn(`[LiveRioErpClient] Staff accounts/onboarding lookup failed: ${String(accErr)}`);
     }
 
     return { found: false };
