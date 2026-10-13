@@ -1041,10 +1041,20 @@ export class LiveRioErpClient implements IRioErpClient {
           : [];
 
         const targetLower = cleanOrderId.toLowerCase();
+        // Support matching regional IDs e.g. MUM-10-1075 against raw Rio ERP AHM-10-1075 via the sequence part (10-1075)
+        const seqMatch = cleanOrderId.match(/^[A-Za-z]{3}-(.+)$/i);
+        const targetSeq = seqMatch ? seqMatch[1].toLowerCase() : null;
+
         const found = salesOrders.find((o: any) => {
           const oId = String(o.orderId || o.id || o._id || '').toLowerCase();
           const cRef = String(o.customerRefNo || o.custRefNo || o.partyRefNo || '').toLowerCase();
-          return oId === targetLower || cRef === targetLower || oId.includes(targetLower) || targetLower.includes(oId);
+          if (oId === targetLower || cRef === targetLower || oId.includes(targetLower) || targetLower.includes(oId)) {
+            return true;
+          }
+          if (targetSeq && (oId.endsWith(targetSeq) || oId.includes(targetSeq))) {
+            return true;
+          }
+          return false;
         });
 
         if (!found) return null;
@@ -1069,19 +1079,27 @@ export class LiveRioErpClient implements IRioErpClient {
             : (coating === 'Uncote' || coating === '-' || coating === '__' ? null : coating);
 
         let resolvedLab = 'RIO-AHMEDABAD';
-        const uId = (found.orderId || cleanOrderId).toUpperCase();
-        if (uId.startsWith('AHM-')) resolvedLab = 'RIO-AHMEDABAD';
-        else if (uId.startsWith('SUR-')) resolvedLab = 'RIO-SURAT';
-        else if (uId.startsWith('MUM-')) resolvedLab = 'RIO-MUMBAI';
-        else if (uId.startsWith('PUN-')) resolvedLab = 'RIO-PUNE';
-        else if (uId.startsWith('DEL-')) resolvedLab = 'RIO-DELHI';
-        else if (uId.startsWith('RAJ-')) resolvedLab = 'RIO-RAJKOT';
+        const cleanUpper = cleanOrderId.toUpperCase();
+        if (cleanUpper.startsWith('MUM-')) resolvedLab = 'RIO-MUMBAI';
+        else if (cleanUpper.startsWith('DEL-')) resolvedLab = 'RIO-DELHI';
+        else if (cleanUpper.startsWith('SUR-')) resolvedLab = 'RIO-SURAT';
+        else if (cleanUpper.startsWith('PUN-')) resolvedLab = 'RIO-PUNE';
+        else if (cleanUpper.startsWith('RAJ-')) resolvedLab = 'RIO-RAJKOT';
+        else if (cleanUpper.startsWith('KOL-')) resolvedLab = 'RIO-KOLKATA';
         else if (found.assignedLab || found.assignedLabName) resolvedLab = found.assignedLab || found.assignedLabName;
         else if (found.labLocation && !found.labLocation.includes('HQ Lab') && !found.labLocation.includes('FreeForm')) resolvedLab = found.labLocation;
+        else if (found.orderId?.toUpperCase().startsWith('MUM-')) resolvedLab = 'RIO-MUMBAI';
+        else if (found.orderId?.toUpperCase().startsWith('DEL-')) resolvedLab = 'RIO-DELHI';
+        else if (found.orderId?.toUpperCase().startsWith('SUR-')) resolvedLab = 'RIO-SURAT';
+        else if (found.orderId?.toUpperCase().startsWith('PUN-')) resolvedLab = 'RIO-PUNE';
+        else if (found.orderId?.toUpperCase().startsWith('RAJ-')) resolvedLab = 'RIO-RAJKOT';
+        else if (found.orderId?.toUpperCase().startsWith('KOL-')) resolvedLab = 'RIO-KOLKATA';
 
         const orderStatusData: RioErpOrderStatusData = {
           id: found._id || found.id,
-          orderId: found.orderId || found.id || cleanOrderId,
+          orderId: cleanUpper.startsWith('MUM-') || cleanUpper.startsWith('DEL-') || cleanUpper.startsWith('SUR-') || cleanUpper.startsWith('PUN-') || cleanUpper.startsWith('RAJ-') || cleanUpper.startsWith('KOL-')
+            ? cleanOrderId
+            : (found.orderId || found.id || cleanOrderId),
           customerRefNo: found.customerRefNo || found.custRefNo || found.partyRefNo || null,
           customer: found.customer || found.partyName || parsedDetails?.customer || null,
           orderDate: found.createdAt || found.orderDate || null,

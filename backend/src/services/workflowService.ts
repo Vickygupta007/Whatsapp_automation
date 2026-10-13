@@ -135,6 +135,7 @@ export function resolveOrderLabName(
   if (cleanId.startsWith('SUR-')) return 'RIO-SURAT';
   if (cleanId.startsWith('PUN-')) return 'RIO-PUNE';
   if (cleanId.startsWith('RAJ-')) return 'RIO-RAJKOT';
+  if (cleanId.startsWith('KOL-')) return 'RIO-KOLKATA';
   if (cleanId.startsWith('AHM-')) return 'RIO-AHMEDABAD';
 
   if (
@@ -147,6 +148,58 @@ export function resolveOrderLabName(
   }
 
   return storeId === 'arco' ? 'ARCO-LAB' : 'RIO-AHMEDABAD';
+}
+
+/**
+ * Formats a Rio ERP order ID to reflect the client's regional servicing lab
+ * (e.g. AHM-10-1075 -> MUM-10-1075 for Mumbai lab, DEL-10-1075 for Delhi lab).
+ */
+export function formatRegionalOrderId(
+  rawOrderId?: string | null,
+  labName?: string | null
+): string {
+  if (!rawOrderId) return '';
+  const trimmed = rawOrderId.trim();
+  if (
+    trimmed.startsWith('ARCO-') ||
+    trimmed.startsWith('S(') ||
+    trimmed.startsWith('S-')
+  ) {
+    return trimmed;
+  }
+
+  const lab = (labName || '').toUpperCase();
+  let prefix = '';
+  if (lab.includes('MUMBAI') || lab.includes('MUM') || lab.includes('MAHARASHTRA')) {
+    prefix = 'MUM';
+  } else if (lab.includes('DELHI') || lab.includes('DEL')) {
+    prefix = 'DEL';
+  } else if (lab.includes('SURAT') || lab.includes('SUR')) {
+    prefix = 'SUR';
+  } else if (lab.includes('PUNE') || lab.includes('PUN')) {
+    prefix = 'PUN';
+  } else if (lab.includes('RAJKOT') || lab.includes('RAJ')) {
+    prefix = 'RAJ';
+  } else if (lab.includes('KOLKATA') || lab.includes('CALCUTTA') || lab.includes('KOL')) {
+    prefix = 'KOL';
+  } else if (lab.includes('AHMEDABAD') || lab.includes('AHM') || lab.includes('GUJARAT')) {
+    prefix = 'AHM';
+  }
+
+  if (!prefix) return trimmed;
+
+  // Replace existing regional lab prefix (e.g. AHM-10-1075 -> MUM-10-1075)
+  const match = trimmed.match(/^(?:AHM|MUM|DEL|SUR|PUN|RAJ|KOL)-(.+)$/i);
+  if (match) {
+    return `${prefix}-${match[1]}`;
+  }
+
+  // If order ID is in format MM-XXXX (e.g. 10-1075) without prefix
+  if (/^\d{2}-\d+/.test(trimmed)) {
+    return `${prefix}-${trimmed}`;
+  }
+
+  return trimmed;
 }
 
 export class WorkflowService {
@@ -657,7 +710,12 @@ ${leftEyeText}
 
           try {
             const erpResponse = await activeErp.createOrder(erpOrderReq);
-            erpOrderId = erpResponse.orderId;
+            const accountName = pendingDraft.party?.name || party?.name || erpResponse.party?.name || pendingDraft.order.partyName || 'Customer';
+            const accountId = pendingDraft.party?.accountId || party?.accountId || erpResponse.party?.accountId || '100023';
+            const labName = pendingDraft.party?.labName || party?.labName || erpResponse.party?.labName || `${store.name}-LAB`;
+            const rawErpOrderId = erpResponse.orderId;
+            const regionalOrderId = formatRegionalOrderId(rawErpOrderId, labName);
+            erpOrderId = regionalOrderId;
 
             const dbOrder = await AppRepository.createOrder({
               messageId,
@@ -682,8 +740,8 @@ ${leftEyeText}
 
             await AppRepository.updateOrderWithErpResult(
               dbOrder.id,
-              erpResponse.orderId,
-              erpResponse.orderRef || '',
+              regionalOrderId,
+              erpResponse.orderRef || rawErpOrderId || '',
               'ORDER_CREATED',
               erpOrderReq,
               erpResponse
@@ -691,15 +749,13 @@ ${leftEyeText}
 
             await logStep('ORDER_CREATION', 'SUCCESS', {
               orderId: dbOrder.id,
-              erpOrderId: erpResponse.orderId,
+              erpOrderId: regionalOrderId,
+              rawErpOrderId,
               party: erpResponse.party || party,
             });
 
             PendingOrderService.removePendingOrder(phone);
 
-            const accountName = pendingDraft.party?.name || party?.name || erpResponse.party?.name || pendingDraft.order.partyName || 'Customer';
-            const accountId = pendingDraft.party?.accountId || party?.accountId || erpResponse.party?.accountId || '100023';
-            const labName = pendingDraft.party?.labName || party?.labName || erpResponse.party?.labName || `${store.name}-LAB`;
             const displayBrand = erpOrderReq.brand || pendingDraft.order.brand || '';
             const displayProduct = erpOrderReq.product || pendingDraft.order.product || pendingDraft.order.productName || '';
             const displayCategory = erpOrderReq.lensCategory || pendingDraft.order.lensCategory || '';
@@ -735,7 +791,7 @@ ${leftEyeText}
             replyText = `✅ *ORDER CONFIRMED*
 
 👓 *${lensesHeader}*
-Order ID: *${erpResponse.orderId}*
+Order ID: *${regionalOrderId}*
 
 📋 *Order Details:*
 ${refDetailLine}${brandDetailLine}${productDetailLine}${categoryDetailLine}${typeDetailLine}${indexDetailLine}${coatingDetailLine}• Account: *${accountName}* (${accountId})
@@ -912,7 +968,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
                 (ord as any).orderTime || (ord as any).time || (ord as any).details?.time
               );
               const timeLine = formattedTime ? `\n• Time: *${formattedTime}*` : '';
-              const lab = resolveOrderLabName(ord.orderId || targetOrderId, ord.labLocation, party?.labName, store.id);
+              const lab = resolveOrderLabName(localDbOrder?.erpOrderId || ord.orderId || targetOrderId, ord.labLocation, party?.labName, store.id);
               const cust = party?.name || ord.customer || 'Customer';
               const prod = ord.product || localDbOrder?.product || '';
               const lens = (ord.lensType || localDbOrder?.lensType) ? ` (${ord.lensType || localDbOrder?.lensType})` : '';
@@ -921,10 +977,12 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
               const liveStatus = deliveryTask?.status || ord.status || 'In Progress';
               const stage = ord.pendingAt || liveStatus;
 
-              const displayOrderId =
+              const rawDisplayId =
                 (ord.orderId && !ord.orderId.match(/^[0-9a-f]{24}$/i) && !ord.orderId.startsWith('ARCO-'))
                   ? ord.orderId
-                  : localDbOrder?.erpOrderRef || localDbOrder?.erpOrderId || ord.orderId || targetOrderId;
+                  : localDbOrder?.erpOrderId || localDbOrder?.erpOrderRef || ord.orderId || targetOrderId;
+
+              const displayOrderId = localDbOrder?.erpOrderId || formatRegionalOrderId(rawDisplayId, lab);
 
               replyText = `🔍 *ORDER STATUS*
 
@@ -961,7 +1019,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
 
               replyText = `🔍 *ORDER STATUS*
 
-📦 Order: *${localDbOrder.erpOrderId || targetOrderId}*
+📦 Order: *${localDbOrder.erpOrderId || formatRegionalOrderId(targetOrderId, lab)}*
 ⚡ Status: *${currentStatus}*
 🔬 Stage: *Lab Processing*
 
@@ -994,6 +1052,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
           const seenIds = new Set<string>();
           const combinedOrders: Array<{
             orderId: string;
+            rawOrderId?: string | null;
             customerRefNo?: string | null;
             product?: string | null;
             coating?: string | null;
@@ -1031,8 +1090,12 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
 
                   if (belongsToCustomer && ord.orderId && !seenIds.has(ord.orderId)) {
                     seenIds.add(ord.orderId);
+                    const orderLab = resolveOrderLabName(ord.orderId, (ord as any).labLocation, party?.labName, store.id);
+                    const regionalId = formatRegionalOrderId(ord.orderId, orderLab);
+                    if (regionalId) seenIds.add(regionalId);
                     combinedOrders.push({
-                      orderId: ord.orderId,
+                      orderId: regionalId,
+                      rawOrderId: ord.orderId,
                       customerRefNo: ord.customerRefNo,
                       product: ord.product,
                       coating: ord.coating,
@@ -1060,11 +1123,14 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
               if (dbo.erpOrderId) {
                 dbOrdersByErpId.set(dbo.erpOrderId, dbo);
               }
+              if (dbo.erpOrderRef) {
+                dbOrdersByErpId.set(dbo.erpOrderRef, dbo);
+              }
             }
 
             // Enrich orders with local DB actual coating/product/ref
             for (const ord of combinedOrders) {
-              const matchedDbOrder = dbOrdersByErpId.get(ord.orderId);
+              const matchedDbOrder = dbOrdersByErpId.get(ord.orderId) || (ord.rawOrderId ? dbOrdersByErpId.get(ord.rawOrderId) : undefined);
               if (matchedDbOrder) {
                 if (matchedDbOrder.coating && matchedDbOrder.coating !== '-' && matchedDbOrder.coating !== '__' && matchedDbOrder.coating.toUpperCase() !== 'UNCOTE') {
                   ord.coating = matchedDbOrder.coating;
@@ -1083,11 +1149,13 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
               // Store isolation guard: strictly ensure order belongs to current store
               if (!isOrderBelongingToStore(dbo, store.id)) continue;
 
-              if (dbo.erpOrderId && !seenIds.has(dbo.erpOrderId)) {
+              if (dbo.erpOrderId && !seenIds.has(dbo.erpOrderId) && !seenIds.has(dbo.erpOrderRef || '')) {
                 seenIds.add(dbo.erpOrderId);
+                if (dbo.erpOrderRef) seenIds.add(dbo.erpOrderRef);
                 const realDboCoating = (dbo.coating && dbo.coating !== '-' && dbo.coating !== '__' && dbo.coating.toUpperCase() !== 'UNCOTE') ? dbo.coating : null;
                 combinedOrders.push({
                   orderId: dbo.erpOrderId,
+                  rawOrderId: dbo.erpOrderRef || dbo.erpOrderId,
                   customerRefNo: dbo.customerRefNo,
                   product: dbo.product,
                   coating: realDboCoating,
@@ -1138,11 +1206,12 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
           for (const ord of combinedOrders) {
             let deliveryStatus = 'Pending Pickup';
             let task = deliveryTaskMap.get(ord.orderId.trim().toUpperCase()) ||
+              (ord.rawOrderId ? deliveryTaskMap.get(ord.rawOrderId.trim().toUpperCase()) : undefined) ||
               (ord.customerRefNo ? deliveryTaskMap.get(ord.customerRefNo.trim().toUpperCase()) : undefined);
 
             if (!task && activeErp.getDeliveryTaskByOrderId) {
               try {
-                task = (await activeErp.getDeliveryTaskByOrderId(ord.orderId)) || undefined;
+                task = (await activeErp.getDeliveryTaskByOrderId(ord.rawOrderId || ord.orderId)) || undefined;
               } catch {}
             }
 

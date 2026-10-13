@@ -610,16 +610,28 @@ export class AppRepository {
    */
   public static async findOrderByErpOrderId(erpOrderId: string): Promise<StoredOrder | null> {
     const cleanId = erpOrderId.trim();
+    const upperId = cleanId.toUpperCase();
+    const seqMatch = cleanId.match(/^[A-Za-z]{3}-(.+)$/i);
+    const seqPart = seqMatch ? seqMatch[1].trim() : null;
+
     const prisma = await getPrismaClient();
     if (prisma) {
       try {
+        const orConditions: any[] = [
+          { erpOrderId: cleanId },
+          { erpOrderId: upperId },
+          { erpOrderRef: cleanId },
+          { erpOrderRef: upperId },
+        ];
+        if (seqPart) {
+          orConditions.push(
+            { erpOrderId: { endsWith: seqPart } },
+            { erpOrderRef: { endsWith: seqPart } }
+          );
+        }
+
         const order = await prisma.order.findFirst({
-          where: {
-            OR: [
-              { erpOrderId: cleanId },
-              { erpOrderId: cleanId.toUpperCase() },
-            ],
-          },
+          where: { OR: orConditions },
           include: {
             message: {
               select: { rawPayload: true },
@@ -663,9 +675,21 @@ export class AppRepository {
       }
     }
 
-    const order = Array.from(memStore.orders.values()).find(
-      (o) => o.erpOrderId === cleanId || o.erpOrderId?.toUpperCase() === cleanId.toUpperCase()
-    );
+    const order = Array.from(memStore.orders.values()).find((o) => {
+      const matchExact =
+        o.erpOrderId === cleanId ||
+        o.erpOrderId?.toUpperCase() === upperId ||
+        o.erpOrderRef === cleanId ||
+        o.erpOrderRef?.toUpperCase() === upperId;
+      if (matchExact) return true;
+      if (seqPart) {
+        return (
+          Boolean(o.erpOrderId && o.erpOrderId.endsWith(seqPart)) ||
+          Boolean(o.erpOrderRef && o.erpOrderRef.endsWith(seqPart))
+        );
+      }
+      return false;
+    });
     return order || null;
   }
 

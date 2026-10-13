@@ -3,7 +3,7 @@ import { AppRepository } from '../src/database/repository.js';
 import { MockRioErpClient } from '../src/integrations/rio-erp/mockClient.js';
 import { WhatsAppClient } from '../src/integrations/whatsapp/client.js';
 import { NormalizationService } from '../src/services/normalizationService.js';
-import { WorkflowService } from '../src/services/workflowService.js';
+import { formatRegionalOrderId, WorkflowService } from '../src/services/workflowService.js';
 import { ARCO_ORDER_FORMAT, AUTO_REPLY_TEMPLATES, RIO_ORDER_FORMAT } from '../src/types/classifier.js';
 import { MetaWebhookPayload, NormalizedMessage } from '../src/types/webhook.js';
 
@@ -1077,6 +1077,79 @@ R: -1.00 cyl`;
     expect(statusRes.category).toBe('ORDER_STATUS');
     expect(statusRes.replyText).toContain('Lab: *RIO-MUMBAI*');
     expect(statusRes.replyText).toContain('Account: *Apex*');
+  });
+
+  it('26. Regional Lab Order ID formatting and tracking: Mumbai order receives MUM- prefix instead of AHM-', async () => {
+    // 1. Validate formatRegionalOrderId helper across all regional labs
+    expect(formatRegionalOrderId('AHM-10-1075', 'RIO-MUMBAI')).toBe('MUM-10-1075');
+    expect(formatRegionalOrderId('AHM-10-1075', 'RIO-DELHI')).toBe('DEL-10-1075');
+    expect(formatRegionalOrderId('AHM-10-1075', 'RIO-SURAT')).toBe('SUR-10-1075');
+    expect(formatRegionalOrderId('AHM-10-1075', 'RIO-PUNE')).toBe('PUN-10-1075');
+    expect(formatRegionalOrderId('AHM-10-1075', 'RIO-RAJKOT')).toBe('RAJ-10-1075');
+    expect(formatRegionalOrderId('AHM-10-1075', 'RIO-KOLKATA')).toBe('KOL-10-1075');
+    expect(formatRegionalOrderId('AHM-10-1075', 'RIO-AHMEDABAD')).toBe('AHM-10-1075');
+    expect(formatRegionalOrderId('10-1075', 'RIO-MUMBAI')).toBe('MUM-10-1075');
+    expect(formatRegionalOrderId('ARCO-1790936565417', 'RIO-MUMBAI')).toBe('ARCO-1790936565417');
+
+    const apexPhone = '918452016415';
+    // Configure mockErp createOrder spy to simulate Rio ERP returning central sequence AHM-10-1075
+    vi.spyOn(mockErp, 'createOrder').mockResolvedValueOnce({
+      success: true,
+      orderId: 'AHM-10-1075',
+      orderRef: 'WA-100055-1075',
+      status: 'ORDER_CONFIRMED',
+      createdAt: new Date().toISOString(),
+      amount: 1344,
+      party: {
+        accountId: '100055',
+        name: 'Apex',
+        labName: 'RIO-MUMBAI',
+      },
+    });
+
+    // 1. Customer places order
+    const orderMsg: NormalizedMessage = {
+      phone: apexPhone,
+      customerName: 'Apex',
+      messageId: `wamid.MUM_ORDER_${Date.now()}`,
+      messageType: 'text',
+      text: `ORDER\nParty: Apex\nBrand: HYPE\nProduct: HYPE B B\nIndex: 1.56\nR: -1.00 / -0.50 x 90\nL: -1.25 / -0.75 x 85`,
+      mediaId: null,
+      rawPayload: {},
+    };
+    await workflow.processNormalizedMessage(orderMsg);
+
+    // 2. Customer confirms order
+    const confirmMsg: NormalizedMessage = {
+      phone: apexPhone,
+      customerName: 'Apex',
+      messageId: `wamid.MUM_CONFIRM_${Date.now()}`,
+      messageType: 'text',
+      text: 'CONFIRM',
+      mediaId: null,
+      rawPayload: {},
+    };
+    const confirmRes = await workflow.processNormalizedMessage(confirmMsg);
+
+    // MUST receive MUM-10-1075, NOT AHM-10-1075
+    expect(confirmRes.replyText).toContain('Order ID: *MUM-10-1075*');
+    expect(confirmRes.replyText).not.toContain('Order ID: *AHM-10-1075*');
+    expect(confirmRes.replyText).toContain('Lab: *RIO-MUMBAI*');
+
+    // 3. Customer queries status using regional ID MUM-10-1075
+    const statusMsg: NormalizedMessage = {
+      phone: apexPhone,
+      customerName: 'Apex',
+      messageId: `wamid.MUM_STATUS_${Date.now()}`,
+      messageType: 'text',
+      text: 'STATUS MUM-10-1075',
+      mediaId: null,
+      rawPayload: {},
+    };
+    const statusRes = await workflow.processNormalizedMessage(statusMsg);
+    expect(statusRes.category).toBe('ORDER_STATUS');
+    expect(statusRes.replyText).toContain('📦 Order: *MUM-10-1075*');
+    expect(statusRes.replyText).toContain('Lab: *RIO-MUMBAI*');
   });
 });
 
