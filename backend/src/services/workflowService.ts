@@ -119,17 +119,23 @@ export function resolveOrderLabName(
   storeId?: string
 ): string {
   const cleanId = (orderId || '').trim().toUpperCase();
-  if (cleanId.startsWith('AHM-')) return 'RIO-AHMEDABAD';
-  if (cleanId.startsWith('SUR-')) return 'RIO-SURAT';
-  if (cleanId.startsWith('MUM-')) return 'RIO-MUMBAI';
-  if (cleanId.startsWith('PUN-')) return 'RIO-PUNE';
-  if (cleanId.startsWith('DEL-')) return 'RIO-DELHI';
-  if (cleanId.startsWith('RAJ-')) return 'RIO-RAJKOT';
   if (cleanId.startsWith('ARCO-') || cleanId.startsWith('S(') || cleanId.startsWith('S-')) return 'ARCO-LAB';
 
+  // If party has a verified assigned lab (e.g. RIO-MUMBAI, RIO-DELHI), it takes precedence for this customer
   if (partyLabName && partyLabName.trim()) {
-    return partyLabName.trim();
+    const trimmedPartyLab = partyLabName.trim();
+    if (trimmedPartyLab.toUpperCase().startsWith('RIO-')) {
+      return trimmedPartyLab;
+    }
+    return `RIO-${trimmedPartyLab.toUpperCase()}`;
   }
+
+  if (cleanId.startsWith('MUM-')) return 'RIO-MUMBAI';
+  if (cleanId.startsWith('DEL-')) return 'RIO-DELHI';
+  if (cleanId.startsWith('SUR-')) return 'RIO-SURAT';
+  if (cleanId.startsWith('PUN-')) return 'RIO-PUNE';
+  if (cleanId.startsWith('RAJ-')) return 'RIO-RAJKOT';
+  if (cleanId.startsWith('AHM-')) return 'RIO-AHMEDABAD';
 
   if (
     rawLabLocation &&
@@ -525,6 +531,20 @@ Send *STATUS <Order-ID>* (e.g. *STATUS SO-2026-00124*).`;
       // Handle VALID_ORDER: Stage draft order and request customer verification (same as image orders)
       if (isCustomerRegistered && classification.category === 'VALID_ORDER') {
         const parsedOrder = imageExtractedOrder || OrderParser.parse(text || '', phone);
+
+        // When the customer is registered, their authentic identity ALWAYS governs the order.
+        // A customer placing an order via WhatsApp orders under their own shop account.
+        const effectivePartyName = party?.name || parsedOrder.order.partyName || 'Customer';
+        parsedOrder.order.partyName = effectivePartyName;
+        if (party?.labName) {
+          (parsedOrder.order as any).labLocation = party.labName;
+          (parsedOrder.order as any).labName = party.labName;
+        }
+        if (party?.companyName) {
+          (parsedOrder.order as any).company = party.companyName;
+          (parsedOrder.order as any).companyName = party.companyName;
+        }
+
         await logStep('ORDER_PARSER', 'SUCCESS', {
           phone,
           customerRefNo: parsedOrder.order.customerRefNo,
@@ -552,7 +572,7 @@ Send *STATUS <Order-ID>* (e.g. *STATUS SO-2026-00124*).`;
         const rx = parsedOrder.order.rx;
         const r = rx?.right || {};
         const l = rx?.left || {};
-        const partyName = parsedOrder.order.partyName || party?.name;
+        const partyName = effectivePartyName;
         const brand = parsedOrder.order.brand;
         const rxType = parsedOrder.order.rxType;
         const product = parsedOrder.order.product;
@@ -677,9 +697,9 @@ ${leftEyeText}
 
             PendingOrderService.removePendingOrder(phone);
 
-            const accountName = erpResponse.party?.name || pendingDraft.party?.name || party?.name || pendingDraft.order.partyName || 'Customer';
-            const accountId = erpResponse.party?.accountId || pendingDraft.party?.accountId || party?.accountId || '100023';
-            const labName = erpResponse.party?.labName || pendingDraft.party?.labName || party?.labName || `${store.name}-LAB`;
+            const accountName = pendingDraft.party?.name || party?.name || erpResponse.party?.name || pendingDraft.order.partyName || 'Customer';
+            const accountId = pendingDraft.party?.accountId || party?.accountId || erpResponse.party?.accountId || '100023';
+            const labName = pendingDraft.party?.labName || party?.labName || erpResponse.party?.labName || `${store.name}-LAB`;
             const displayBrand = erpOrderReq.brand || pendingDraft.order.brand || '';
             const displayProduct = erpOrderReq.product || pendingDraft.order.product || pendingDraft.order.productName || '';
             const displayCategory = erpOrderReq.lensCategory || pendingDraft.order.lensCategory || '';
@@ -893,7 +913,7 @@ Please check your Order ID or reply *STATUS* to see all your active orders.`;
               );
               const timeLine = formattedTime ? `\n• Time: *${formattedTime}*` : '';
               const lab = resolveOrderLabName(ord.orderId || targetOrderId, ord.labLocation, party?.labName, store.id);
-              const cust = ord.customer || party?.name || 'Customer';
+              const cust = party?.name || ord.customer || 'Customer';
               const prod = ord.product || localDbOrder?.product || '';
               const lens = (ord.lensType || localDbOrder?.lensType) ? ` (${ord.lensType || localDbOrder?.lensType})` : '';
               const coating = realCoating ? ` (${realCoating})` : '';

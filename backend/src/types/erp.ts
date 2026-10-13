@@ -101,6 +101,11 @@ export interface RioErpOrderRequest {
   note?: string | null;
   rawMessage: string;
   rx: RioErpRx;
+  labLocation?: string | null;
+  labName?: string | null;
+  company?: string | null;
+  companyName?: string | null;
+  party?: RioErpParty;
   details?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }

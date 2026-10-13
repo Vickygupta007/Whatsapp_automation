@@ -58,10 +58,19 @@ export class RioErpMapper {
     // Optical parameters (Dia, Tint/Color, Fitting Type) are sent exclusively in their dedicated optical fields.
     const finalRemarks = customerRemark || null;
 
+    const effectivePartyName = party?.name || order.partyName || null;
+    const effectiveLabName = party?.labName || (order as any)?.labLocation || (order as any)?.labName || 'RIO-AHMEDABAD';
+    const effectiveCompany = party?.companyName || (order as any)?.companyName || 'Rio';
+
     return {
       phone: order.phone || (party?.mobileNumber as string) || '',
       customerRefNo,
-      partyName: order.partyName || party?.name || null,
+      partyName: effectivePartyName,
+      labLocation: effectiveLabName,
+      labName: effectiveLabName,
+      company: effectiveCompany,
+      companyName: effectiveCompany,
+      party: party || undefined,
       brand: order.brand || (hasExplicitProduct ? product : null),
       brandName: order.brand || (hasExplicitProduct ? product : null),
       rxType: order.rxType || 'Prescription',

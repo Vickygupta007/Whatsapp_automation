@@ -208,6 +208,20 @@ export class MockRioErpClient implements IRioErpClient {
         status: 'ACTIVE',
       },
     ],
+    [
+      '918452016415',
+      {
+        id: 'apex-mumbai-01',
+        name: 'Apex',
+        phone: '918452016415',
+        accountCode: '100055',
+        accountId: '100055',
+        labName: 'RIO-MUMBAI',
+        email: 'apex@example.com',
+        isRegistered: true,
+        status: 'ACTIVE',
+      },
+    ],
   ]);
 
   private orderCounter = 123;
@@ -271,9 +285,9 @@ export class MockRioErpClient implements IRioErpClient {
     }
 
     const party = {
-      accountId: customer?.accountCode || customer?.accountId || customer?.id || '100023',
-      name: customer?.name || 'Ash',
-      labName: customer?.labName || 'RIO-AHMEDABAD',
+      accountId: customer?.accountCode || customer?.accountId || customer?.id || (orderData as any).party?.accountId || '100023',
+      name: orderData.partyName || (orderData as any).party?.name || customer?.name || 'Ash',
+      labName: (orderData as any).labLocation || (orderData as any).party?.labName || customer?.labName || 'RIO-AHMEDABAD',
     };
 
     logger.info(`[MockRioErpClient] Created order in Mock Rio ERP: ${orderId}`, {

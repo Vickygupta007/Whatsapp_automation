@@ -551,7 +551,9 @@ export class OrderParser {
       cleaned.toLowerCase() === 'customer name' ||
       cleaned.toLowerCase() === 'party name' ||
       cleaned.toLowerCase() === 'patient name' ||
-      cleaned.toLowerCase() === 'patient name or job no'
+      cleaned.toLowerCase() === 'patient name or job no' ||
+      cleaned.toLowerCase() === 'your shop name' ||
+      cleaned.toLowerCase() === 'shop name'
     ) {
       return null;
     }

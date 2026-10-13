@@ -201,9 +201,19 @@ export class LiveRioErpClient implements IRioErpClient {
 
     try {
       // Endpoint from n8n: POST /api/integrations/whatsapp/order
+      const targetLab = (orderData as any).labLocation || (orderData as any).party?.labName || 'RIO-AHMEDABAD';
+      const targetCompany = (orderData as any).company || (orderData as any).party?.companyName || (targetLab.includes('DELHI') ? 'RIO-DELHI' : (targetLab.includes('MUMBAI') || targetLab.includes('MAHARASHTRA')) ? 'RIO-MAHARASHTRA' : 'Rio');
+      const targetParty = orderData.partyName || (orderData as any).party?.name || 'Customer';
+
       const payload = {
         ...orderData,
         phone: phone10,
+        partyName: targetParty,
+        customer: targetParty,
+        labLocation: targetLab,
+        labName: targetLab,
+        company: targetCompany,
+        companyName: targetCompany,
       };
       const response = await this.http.post('/api/integrations/whatsapp/order', payload);
       const orderResponse = RioErpMapper.mapOrderResponse(response.data as Record<string, unknown>);
@@ -237,7 +247,7 @@ export class LiveRioErpClient implements IRioErpClient {
       throw new Error('Staff token unavailable for direct sales order creation');
     }
 
-    const targetPartyName = orderData.partyName || 'amk';
+    const targetPartyName = orderData.partyName || (orderData as any).party?.name || 'Customer';
     const targetBrand = orderData.brand || orderData.brandName || 'HYPE';
     const targetProduct = orderData.product || orderData.productName || 'HYPE B B';
     const targetLensType = orderData.lensType || 'Single Vision';
@@ -607,6 +617,8 @@ export class LiveRioErpClient implements IRioErpClient {
 
       const targetCustomerRefNo = cleanOrDash(orderData.customerRefNo || existing.customerRefNo);
       const targetPartyName = orderData.partyName || existing.partyName || existing.customer;
+      const targetLab = (orderData as any).labLocation || (orderData as any).party?.labName || existing.labLocation || 'RIO-AHMEDABAD';
+      const targetCompany = (orderData as any).company || (orderData as any).party?.companyName || existing.companyName || 'Rio';
       const targetDiscount = orderData.discount ? Number(orderData.discount) || 0 : 0;
 
       // Prescription parameters
@@ -924,6 +936,10 @@ export class LiveRioErpClient implements IRioErpClient {
         orderNo: existing.orderId,
         partyName: targetPartyName,
         customer: targetPartyName,
+        labLocation: targetLab,
+        labName: targetLab,
+        company: targetCompany,
+        companyName: targetCompany,
         brand: targetBrand,
         brandName: targetBrand,
         product: targetProduct,

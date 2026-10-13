@@ -1018,6 +1018,66 @@ R: -1.00 cyl`;
     expect(arcoRes.replyText).toContain('R: -1.00 / -0.50 x 90');
     expect(arcoRes.replyText).not.toContain('Brand: HYPE');
   });
+
+  it('25. Regional Lab & Party Protection: Mumbai customer (Apex) sending order with "Party: amk" gets routed to RIO-MUMBAI for Apex', async () => {
+    const apexPhone = '918452016415';
+
+    // 1. Send order that has copied template with "Party: amk"
+    const orderMsg: NormalizedMessage = {
+      phone: apexPhone,
+      customerName: 'Apex',
+      messageId: `wamid.APEX_TEST_${Date.now()}`,
+      messageType: 'text',
+      text: `ORDER\nParty: amk\nBrand: HYPE\nProduct: HYPE B B\nIndex: 1.56\nR: -1.00 / -0.50 x 90\nL: -1.25 / -0.75 x 85`,
+      mediaId: null,
+      rawPayload: {},
+    };
+
+    const orderRes = await workflow.processNormalizedMessage(orderMsg);
+    expect(orderRes.category).toBe('ORDER_VERIFICATION');
+    // Verification message must reflect authentic party 'Apex', NOT 'amk'
+    expect(orderRes.replyText).toContain('Party: *Apex*');
+    expect(orderRes.replyText).not.toContain('Party: *amk*');
+
+    // 2. Confirm the order
+    const confirmMsg: NormalizedMessage = {
+      phone: apexPhone,
+      customerName: 'Apex',
+      messageId: `wamid.APEX_CONFIRM_${Date.now()}`,
+      messageType: 'text',
+      text: 'CONFIRM',
+      mediaId: null,
+      rawPayload: {},
+    };
+
+    const confirmRes = await workflow.processNormalizedMessage(confirmMsg);
+    expect(confirmRes.category).toBe('CONFIRM_ORDER');
+    expect(confirmRes.replyText).toContain('Account: *Apex*');
+    expect(confirmRes.replyText).toContain('Lab: *RIO-MUMBAI*');
+    expect(confirmRes.replyText).not.toContain('Account: *amk*');
+    expect(confirmRes.replyText).not.toContain('Lab: *RIO-AHMEDABAD*');
+
+    // Extract the order ID from confirmation text
+    const orderIdMatch = confirmRes.replyText.match(/Order ID:\s*\*([A-Za-z0-9_-]+)\*/i);
+    const createdId = orderIdMatch ? orderIdMatch[1] : null;
+    expect(createdId).toBeTruthy();
+
+    // 3. Query status of created order
+    const statusMsg: NormalizedMessage = {
+      phone: apexPhone,
+      customerName: 'Apex',
+      messageId: `wamid.APEX_STATUS_${Date.now()}`,
+      messageType: 'text',
+      text: `STATUS ${createdId}`,
+      mediaId: null,
+      rawPayload: {},
+    };
+
+    const statusRes = await workflow.processNormalizedMessage(statusMsg);
+    expect(statusRes.category).toBe('ORDER_STATUS');
+    expect(statusRes.replyText).toContain('Lab: *RIO-MUMBAI*');
+    expect(statusRes.replyText).toContain('Account: *Apex*');
+  });
 });
 
 
