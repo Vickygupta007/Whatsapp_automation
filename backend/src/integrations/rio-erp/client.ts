@@ -8,6 +8,17 @@ import { RioErpMapper } from './mappers.js';
 import { StoreErpConfig } from '../../config/stores.js';
 import { AppRepository } from '../../database/repository.js';
 
+export function resolveRioLabName(entity: any): string {
+  const text = JSON.stringify(entity || {}).toLowerCase();
+  if (text.includes('delhi')) return 'RIO-DELHI';
+  if (text.includes('mumbai') || text.includes('maharashtra')) return 'RIO-MUMBAI';
+  if (text.includes('surat')) return 'RIO-SURAT';
+  if (text.includes('pune')) return 'RIO-PUNE';
+  if (text.includes('rajkot') || text.includes('rajasthan')) return 'RIO-RAJKOT';
+  if (text.includes('kolkata')) return 'RIO-KOLKATA';
+  return 'RIO-AHMEDABAD';
+}
+
 export class LiveRioErpClient implements IRioErpClient {
   private http: AxiosInstance;
 
@@ -95,14 +106,15 @@ export class LiveRioErpClient implements IRioErpClient {
             return m === phone10;
           });
           if (match) {
+            const matchLab = resolveRioLabName(match);
             const party = {
               id: match.id || match._id,
               name: match.Name || match.name || match.accountName,
               accountId: match.AccountId || match.accountId || 'ACC',
               labId: match.labId || '81bdc55a-3dae-4caf-8907-e6c586a18836',
-              labName: 'RIO-AHMEDABAD',
+              labName: matchLab,
               companyId: match.companyId,
-              companyName: 'Rio',
+              companyName: match.companyName || 'Rio',
               partyType: 'retailer',
               mobileNumber: phone10,
               contactPerson: match.ContactPerson || match.name,
@@ -140,8 +152,7 @@ export class LiveRioErpClient implements IRioErpClient {
           if (onbMatch) {
             const resolvedName = (onbMatch.partyName || onbMatch.shopName || onbMatch.formData?.partyName || onbMatch.formData?.shopName || 'Valued Customer').trim();
             const resolvedAccountId = onbMatch.formData?.approvedAccountId || onbMatch.approvedAccountId || onbMatch.requestId || 'ACC';
-            const labLoc = String(onbMatch.labLocation || onbMatch.company || '').toLowerCase();
-            const resolvedLab = labLoc.includes('mumbai') || labLoc.includes('maharashtra') ? 'RIO-MAHARASHTRA' : 'RIO-AHMEDABAD';
+            const resolvedLab = resolveRioLabName(onbMatch);
 
             const party = {
               id: onbMatch.id || onbMatch._id || onbMatch.requestId,
@@ -327,9 +338,17 @@ export class LiveRioErpClient implements IRioErpClient {
       grandTotal: grandTotal,
     };
 
+    const targetLab = (orderData as any).labLocation || (orderData.details as any)?.labLocation || (orderData as any).party?.labName || (orderData as any).party?.labLocation || 'RIO-AHMEDABAD';
+    const targetCompany = targetLab.includes('DELHI') ? 'RIO-DELHI' : (targetLab.includes('MUMBAI') || targetLab.includes('MAHARASHTRA')) ? 'RIO-MAHARASHTRA' : ((orderData as any).party?.companyName || 'Rio');
+
     const payload: Record<string, any> = {
       customer: targetPartyName,
       partyName: targetPartyName,
+      company: targetCompany,
+      companyName: targetCompany,
+      labLocation: targetLab,
+      labName: targetLab,
+      pendingAt: targetLab,
       brand: targetBrand,
       product: targetProduct,
       lensType: targetLensType,
@@ -368,6 +387,9 @@ export class LiveRioErpClient implements IRioErpClient {
       details: JSON.stringify({
         customer: targetPartyName,
         partyName: targetPartyName,
+        company: targetCompany,
+        labLocation: targetLab,
+        labName: targetLab,
         amount: grandTotal,
         grandTotal: grandTotal,
         subTotal: subTotal,
