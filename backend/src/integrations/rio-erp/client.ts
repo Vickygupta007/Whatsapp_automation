@@ -131,8 +131,8 @@ export class LiveRioErpClient implements IRioErpClient {
         });
         if (Array.isArray(onbRes.data)) {
           const onbMatch = onbRes.data.find((o: any) => {
-            const isApproved = ['approved', 'active', 'verified'].includes(String(o.status || '').toLowerCase());
-            if (!isApproved) return false;
+            const isEligible = ['approved', 'active', 'verified', 'submitted', 'pending'].includes(String(o.status || '').toLowerCase());
+            if (!isEligible) return false;
             const m1 = String(o.mobile || o.phone || '').replace(/\D/g, '').slice(-10);
             const m2 = String(o.formData?.mobile || o.formData?.phone || o.formData?.alternateMobile || '').replace(/\D/g, '').slice(-10);
             return m1 === phone10 || m2 === phone10;
