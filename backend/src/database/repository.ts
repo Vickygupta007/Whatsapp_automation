@@ -84,6 +84,21 @@ const memStore = new InMemoryRepository();
 export class AppRepository {
   private static knownPartiesCache = new Map<string, any>([
     [
+      '8452016415',
+      {
+        id: 'apex-mumbai-001',
+        name: 'Apex',
+        accountId: '100055',
+        labId: 'mumbai-lab-01',
+        labName: 'RIO-MUMBAI',
+        companyId: 'cc610efd-99a9-400f-b9ee-077cd202696c',
+        companyName: 'Rio',
+        partyType: 'retailer',
+        mobileNumber: '8452016415',
+        contactPerson: 'Apex',
+      },
+    ],
+    [
       '8355866239',
       {
         id: 'ffffcc24-db81-487d-be2e-4b6fbaedb946',
