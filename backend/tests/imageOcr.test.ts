@@ -64,8 +64,6 @@ describe('ImageOcrService - Google Cloud Vision API Integration', () => {
   it('should parse prescription directly from Google Cloud Vision OCR in hybrid pipeline', async () => {
     const origKey = config.GOOGLE_VISION_API_KEY;
     (config as any).GOOGLE_VISION_API_KEY = 'test_google_vision_api_key_123';
-    const origEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
 
     vi.spyOn(ImageOcrService, 'callGoogleCloudVision').mockResolvedValueOnce(
       'ORDER\nRef: PATIENT-MUM\nProduct: HYPE B B\nIndex: 1.56\nCoating: HMC\nR: -1.25 / -0.50 x 90\nL: -1.50 / -0.75 x 80'
@@ -85,7 +83,6 @@ describe('ImageOcrService - Google Cloud Vision API Integration', () => {
     expect(String(parsed?.order.rx.left.axis)).toBe('80');
 
     (config as any).GOOGLE_VISION_API_KEY = origKey;
-    process.env.NODE_ENV = origEnv;
   });
 
   it('should gracefully handle Vision API errors without crashing', async () => {

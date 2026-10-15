@@ -54,7 +54,7 @@ export class ImageOcrService {
 
     // 2. Google Cloud Vision API (High-accuracy document text detection)
     let visionOcrText: string | null = null;
-    if (config.GOOGLE_VISION_API_KEY && process.env.NODE_ENV !== 'test') {
+    if (config.GOOGLE_VISION_API_KEY) {
       try {
         visionOcrText = await this.callGoogleCloudVision(imageBuffer);
         if (visionOcrText) {
@@ -181,6 +181,10 @@ export class ImageOcrService {
       logger.info('[ImageOcrService] Google Cloud Vision detected no text in image');
       return null;
     } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.status === 403) {
+        logger.warn('[ImageOcrService] Google Cloud Vision requires billing to be activated on your Google Cloud project. Seamlessly falling back to Gemini Vision AI.');
+        return null;
+      }
       const errorDetail = axios.isAxiosError(err)
         ? `${err.response?.status} ${JSON.stringify(err.response?.data)}`
         : String(err);
