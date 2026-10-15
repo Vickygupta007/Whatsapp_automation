@@ -52,10 +52,38 @@ export class ImageOcrService {
       }
     }
 
-    // 2. Use Gemini Vision AI if API key is provided (skip in test mode to save quota)
+    // 2. Google Cloud Vision API (High-accuracy document text detection)
+    let visionOcrText: string | null = null;
+    if (config.GOOGLE_VISION_API_KEY && process.env.NODE_ENV !== 'test') {
+      try {
+        visionOcrText = await this.callGoogleCloudVision(imageBuffer);
+        if (visionOcrText) {
+          const parsedFromVision = OrderParser.parse(visionOcrText, phone);
+          const hasRx = Boolean(
+            parsedFromVision.order.rx?.right?.sph ||
+            parsedFromVision.order.rx?.right?.cyl ||
+            parsedFromVision.order.rx?.left?.sph ||
+            parsedFromVision.order.rx?.left?.cyl
+          );
+
+          // If OrderParser cleanly extracts both Rx power and details directly from Vision OCR text
+          if (parsedFromVision.isOrder && hasRx) {
+            logger.info('[ImageOcrService] Successfully parsed prescription directly from Google Cloud Vision OCR text', {
+              customerRef: parsedFromVision.order.customerRefNo,
+              product: parsedFromVision.order.product,
+            });
+            return parsedFromVision;
+          }
+        }
+      } catch (gcvErr: unknown) {
+        logger.warn(`[ImageOcrService] Google Cloud Vision processing encountered error: ${String(gcvErr)}`);
+      }
+    }
+
+    // 3. Use Gemini Vision AI (with image + Google Cloud Vision OCR ground truth text)
     if (config.GEMINI_API_KEY && process.env.NODE_ENV !== 'test') {
       try {
-        const extracted = await this.callGeminiVision(imageBuffer, mimeType);
+        const extracted = await this.callGeminiVision(imageBuffer, mimeType, visionOcrText);
         if (extracted && extracted.isPrescription) {
           return this.convertToParsedOrder(extracted, phone);
         }
@@ -64,7 +92,15 @@ export class ImageOcrService {
       }
     }
 
-    // 3. Fallback: If in test mode or mock mode, generate standard test prescription
+    // 4. Fallback to OrderParser with Google Cloud Vision OCR text if Gemini was unavailable
+    if (visionOcrText) {
+      const fallbackParsed = OrderParser.parse(visionOcrText, phone);
+      if (fallbackParsed.isOrder) {
+        return fallbackParsed;
+      }
+    }
+
+    // 5. Fallback: If in test mode or mock mode, generate standard test prescription
     if (process.env.NODE_ENV === 'test' || config.WHATSAPP_USE_MOCK) {
       logger.info('[ImageOcrService] Using simulated optical prescription for test/mock image');
       const hasSpecs = caption?.toLowerCase().includes('specs') || false;
@@ -96,11 +132,70 @@ export class ImageOcrService {
   }
 
   /**
+   * Calls Google Cloud Vision REST API (DOCUMENT_TEXT_DETECTION) to extract high-accuracy OCR text.
+   */
+  public static async callGoogleCloudVision(imageBuffer: Buffer): Promise<string | null> {
+    const apiKey = config.GOOGLE_VISION_API_KEY;
+    if (!apiKey) return null;
+
+    try {
+      const base64Image = imageBuffer.toString('base64');
+      const url = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
+      logger.info('[ImageOcrService] Sending prescription image to Google Cloud Vision API (DOCUMENT_TEXT_DETECTION)...');
+
+      const payload = {
+        requests: [
+          {
+            image: { content: base64Image },
+            features: [
+              { type: 'DOCUMENT_TEXT_DETECTION' },
+              { type: 'TEXT_DETECTION' },
+            ],
+          },
+        ],
+      };
+
+      const response = await axios.post(url, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 15000,
+      });
+
+      const responseItem = response.data?.responses?.[0];
+      if (responseItem?.error) {
+        logger.warn(
+          `[ImageOcrService] Google Cloud Vision returned error: ${responseItem.error.message || JSON.stringify(responseItem.error)}`
+        );
+        return null;
+      }
+
+      const fullText =
+        responseItem?.fullTextAnnotation?.text ||
+        responseItem?.textAnnotations?.[0]?.description ||
+        null;
+
+      if (fullText && fullText.trim()) {
+        logger.info(`[ImageOcrService] Google Cloud Vision OCR succeeded (${fullText.trim().length} chars extracted)`);
+        return fullText.trim();
+      }
+
+      logger.info('[ImageOcrService] Google Cloud Vision detected no text in image');
+      return null;
+    } catch (err: unknown) {
+      const errorDetail = axios.isAxiosError(err)
+        ? `${err.response?.status} ${JSON.stringify(err.response?.data)}`
+        : String(err);
+      logger.error(`[ImageOcrService] Google Cloud Vision API call failed: ${errorDetail}`);
+      return null;
+    }
+  }
+
+  /**
    * Calls Google Gemini Vision API to analyze image and extract optical prescription JSON
    */
   private static async callGeminiVision(
     imageBuffer: Buffer,
-    mimeType: string
+    mimeType: string,
+    ocrText?: string | null
   ): Promise<ExtractedPrescription | null> {
     const apiKey = config.GEMINI_API_KEY;
     const base64Image = imageBuffer.toString('base64');
@@ -165,6 +260,10 @@ Return ONLY a JSON object with this exact structure:
   "notes": "string or null"
 }`;
 
+    const finalPrompt = ocrText && ocrText.trim()
+      ? `${prompt}\n\n[Google Cloud Vision OCR Detected Ground Truth Text from Image]:\n"""\n${ocrText.trim()}\n"""\nUse the above OCR text as exact reference to verify numbers, letters, product names, and signs (+/-).`
+      : prompt;
+
     const models = [
       'gemini-3.1-flash-lite',
       'gemini-3.5-flash-lite',
@@ -178,7 +277,7 @@ Return ONLY a JSON object with this exact structure:
       contents: [
         {
           parts: [
-            { text: prompt },
+            { text: finalPrompt },
             {
               inline_data: {
                 mime_type: mimeType,

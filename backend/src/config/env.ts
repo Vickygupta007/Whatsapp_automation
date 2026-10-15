@@ -35,6 +35,9 @@ const envSchema = z.object({
   // Gemini Vision AI Configuration for Prescription Image Recognition
   GEMINI_API_KEY: z.string().default(''),
 
+  // Google Cloud Vision API Configuration for Prescription OCR
+  GOOGLE_VISION_API_KEY: z.string().default(''),
+
   // Ngrok Public Webhook Tunnel Configuration
   NGROK_ENABLED: z.preprocess((val) => val === undefined || val === 'true' || val === true, z.boolean()).default(true),
   NGROK_DOMAIN: z.string().default('grill-reptilian-paying.ngrok-free.dev'),
