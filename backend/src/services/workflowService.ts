@@ -202,6 +202,32 @@ export function formatRegionalOrderId(
   return trimmed;
 }
 
+/**
+ * Normalizes customer greeting names, decoding stylized unicode/leetspeak characters
+ * (such as "√!©|<y Gu¶t@" -> "Vicky Gupta") and falling back gracefully to account name.
+ */
+export function sanitizeGreetingName(rawName: string | null | undefined, fallbackName?: string | null): string {
+  if (!rawName) return fallbackName || 'Customer';
+  let s = rawName;
+  s = s
+    .replace(/√/g, 'V')
+    .replace(/!/g, 'i')
+    .replace(/©/g, 'c')
+    .replace(/\|[<]/g, 'k')
+    .replace(/\|[>]/g, 'k')
+    .replace(/¶/g, 'p')
+    .replace(/@/g, 'a')
+    .replace(/[$]/g, 'S')
+    .replace(/¢/g, 'c')
+    .replace(/£/g, 'L');
+  s = s.replace(/[^\p{L}\p{N}\s.'-]/gu, '').replace(/\s+/g, ' ').trim();
+  const letterCount = (s.match(/[\p{L}]/gu) || []).length;
+  if (letterCount >= 2) {
+    return s;
+  }
+  return fallbackName || 'Customer';
+}
+
 export class WorkflowService {
   private erpAdapter: IRioErpClient;
   private hasCustomClient: boolean;
@@ -536,7 +562,7 @@ Please contact your ${store.name} coordinator to activate your account.`;
 
       // Handle GREETING: Personalized welcome message with customer account and assigned lab details
       if (classification.category === 'GREETING') {
-        const greetingName = customerName || party?.name || 'Customer';
+        const greetingName = sanitizeGreetingName(customerName, party?.contactPerson || party?.name);
         const accountName = party?.name || customerName || store.name;
         const accountId = party?.accountId || '1001';
         const labName = party?.labName || `${store.name} Lab`;
@@ -806,6 +832,7 @@ ${amountLine}${extraLines ? extraLines + '\n' : ''}
             const erpErrMsg = erpErr instanceof Error ? erpErr.message : String(erpErr);
             logger.error(`[WorkflowService] ERP order confirmation failed for ${phone}: ${erpErrMsg}`);
             await logStep('ORDER_CREATION', 'FAILED', { phone, error: erpErrMsg }, 'ErpOrderError', erpErrMsg);
+            PendingOrderService.removePendingOrder(phone);
             replyText = `⚠️ We encountered an issue punching your confirmed order in ${store.name} ERP. Our lab coordinator has been notified.`;
           }
         } else {

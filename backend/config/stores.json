@@ -37,5 +37,22 @@
       "role": "admin",
       "useMock": false
     }
+  },
+  {
+    "id": "global-retail-hub",
+    "name": "Global Retail Hub",
+    "whatsappPhoneNumberId": "9988776655443322",
+    "whatsappDisplayPhone": "+91 99887 76655",
+    "whatsappWabaId": "5544332211",
+    "whatsappVerifyToken": "global-retail-hub_verify_token_2026",
+    "erp": {
+      "type": "rio-erp",
+      "baseUrl": "http://200.234.35.179:3000",
+      "apiKey": "rio_whatsapp_secret_key_2026",
+      "authType": "api-key",
+      "username": "",
+      "password": "",
+      "useMock": false
+    }
   }
 ]

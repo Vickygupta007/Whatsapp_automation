@@ -78,7 +78,7 @@ export class ClassifierService {
     // Rule: CONFIRM_ORDER (Button click or text confirmation)
     const hasPendingOrder = PendingOrderService.hasPendingOrder(phone);
     const CONFIRM_REGEX = /^(confirm_order|confirm_image_order|confirm(\s*order)?|yes|y|ok|okay|proceed|approve|place\s*order|✅\s*confirm(\s*order)?)$/i;
-    if (CONFIRM_REGEX.test(cleanLower) || (hasPendingOrder && (cleanLower === '1' || cleanLower === 'confirm'))) {
+    if (CONFIRM_REGEX.test(cleanLower) || (hasPendingOrder && cleanLower === 'confirm')) {
       return {
         category: 'CONFIRM_ORDER',
         replyText: AUTO_REPLY_TEMPLATES.CONFIRM_ORDER,

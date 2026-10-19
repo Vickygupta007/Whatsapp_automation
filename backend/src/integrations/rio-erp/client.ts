@@ -256,14 +256,22 @@ export class LiveRioErpClient implements IRioErpClient {
     const targetIndex = orderData.index || '1.56';
     const targetCustomerRefNo = orderData.customerRefNo || 'WhatsApp Order';
 
-    const rSph = orderData.rx?.right?.sph ? Number(orderData.rx.right.sph) : 0;
-    const rCyl = orderData.rx?.right?.cyl ? Number(orderData.rx.right.cyl) : 0;
-    const rAxis = orderData.rx?.right?.axis !== undefined && orderData.rx?.right?.axis !== null ? Number(orderData.rx.right.axis) : (rCyl !== 0 ? 90 : 0);
+    const parseNum = (val: unknown): number => {
+      if (val === null || val === undefined || val === '') return 0;
+      const n = typeof val === 'number' ? val : parseFloat(String(val).replace(/[^0-9.-]/g, ''));
+      return isNaN(n) ? 0 : n;
+    };
+
+    const rSph = parseNum(orderData.rx?.right?.sph);
+    const rCyl = parseNum(orderData.rx?.right?.cyl);
+    const rAxis = orderData.rx?.right?.axis !== undefined && orderData.rx?.right?.axis !== null ? parseNum(orderData.rx.right.axis) : (rCyl !== 0 ? 90 : 0);
+    const rAdd = parseNum(orderData.rx?.right?.addn ?? (orderData.rx?.right as any)?.add);
     const rQty = orderData.rx?.right?.qty || 1;
 
-    const lSph = orderData.rx?.left?.sph ? Number(orderData.rx.left.sph) : 0;
-    const lCyl = orderData.rx?.left?.cyl ? Number(orderData.rx.left.cyl) : 0;
-    const lAxis = orderData.rx?.left?.axis !== undefined && orderData.rx?.left?.axis !== null ? Number(orderData.rx.left.axis) : (lCyl !== 0 ? 90 : 0);
+    const lSph = parseNum(orderData.rx?.left?.sph);
+    const lCyl = parseNum(orderData.rx?.left?.cyl);
+    const lAxis = orderData.rx?.left?.axis !== undefined && orderData.rx?.left?.axis !== null ? parseNum(orderData.rx.left.axis) : (lCyl !== 0 ? 90 : 0);
+    const lAdd = parseNum(orderData.rx?.left?.addn ?? (orderData.rx?.left as any)?.add);
     const lQty = orderData.rx?.left?.qty || 1;
 
     const targetDia = orderData.dia || orderData.diameter || (orderData.details as any)?.dia || null;
@@ -271,8 +279,11 @@ export class LiveRioErpClient implements IRioErpClient {
     const targetTinting = orderData.tintingName || orderData.tinting || null;
     const targetFitting = orderData.fitting || orderData.fittingType || orderData.fit || null;
     const targetRemarks = orderData.remarks || orderData.remark || orderData.specialRemark || null;
-    const rPrism = orderData.rx?.right?.prism ? parseFloat(String(orderData.rx.right.prism)) : 0;
-    const lPrism = orderData.rx?.left?.prism ? parseFloat(String(orderData.rx.left.prism)) : 0;
+    const targetCorridor = (orderData as any).corridor || orderData.rx?.right?.corridor || orderData.rx?.left?.corridor || null;
+    const targetEtct = (orderData as any).etct || (orderData as any).etCtType || orderData.rx?.right?.etCtType || orderData.rx?.left?.etCtType || null;
+    const targetMm = (orderData as any).mm ? parseNum((orderData as any).mm) : (orderData.rx?.right?.mm ? parseNum(orderData.rx.right.mm) : null);
+    const rPrism = parseNum(orderData.rx?.right?.prism);
+    const lPrism = parseNum(orderData.rx?.left?.prism);
 
     // Determine baseline catalog price
     let basePrice = 680; // default for HYPE B B 1.56
@@ -304,8 +315,8 @@ export class LiveRioErpClient implements IRioErpClient {
           lensIndex: targetIndex,
           coating: targetCoating,
           partyName: targetPartyName,
-          rightActive: true, rightSph: rSph, rightCyl: rCyl, rightAxis: rAxis, rightQty: rQty,
-          leftActive: true, leftSph: lSph, leftCyl: lCyl, leftAxis: lAxis, leftQty: lQty,
+          rightActive: true, rightSph: rSph, rightCyl: rCyl, rightAxis: rAxis, rightQty: rQty, rightAddn: rAdd > 0 ? rAdd : undefined,
+          leftActive: true, leftSph: lSph, leftCyl: lCyl, leftAxis: lAxis, leftQty: lQty, leftAddn: lAdd > 0 ? lAdd : undefined,
           colorName: targetColor, dia: targetDia, tintingName: targetTinting, fittingType: targetFitting,
           taxRate: 5,
         },
@@ -371,16 +382,26 @@ export class LiveRioErpClient implements IRioErpClient {
       rightCyl: rCyl,
       rightAxis: rAxis > 0 ? rAxis : (rCyl !== 0 ? 90 : 0),
       rightQty: rQty,
+      rightAddn: rAdd > 0 ? rAdd : undefined,
+      rightAdd: rAdd > 0 ? rAdd : undefined,
       leftActive: true,
       leftSph: lSph,
       leftCyl: lCyl,
       leftAxis: lAxis > 0 ? lAxis : (lCyl !== 0 ? 90 : 0),
       leftQty: lQty,
+      leftAddn: lAdd > 0 ? lAdd : undefined,
+      leftAdd: lAdd > 0 ? lAdd : undefined,
       color: targetColor,
       dia: targetDia,
       tinting: targetTinting,
       fitting: targetFitting,
       fittingType: targetFitting,
+      corridor: targetCorridor,
+      etct: targetEtct,
+      mm: targetMm,
+      prism: (rPrism || lPrism) ? (rPrism || lPrism) : undefined,
+      rightPrism: rPrism > 0 ? rPrism : undefined,
+      leftPrism: lPrism > 0 ? lPrism : undefined,
       remarks: targetRemarks,
       remark: targetRemarks,
       specialRemark: targetRemarks,
@@ -409,6 +430,14 @@ export class LiveRioErpClient implements IRioErpClient {
         tinting: targetTinting,
         fitting: targetFitting,
         fittingType: targetFitting,
+        corridor: targetCorridor,
+        etct: targetEtct,
+        mm: targetMm,
+        prism: (rPrism || lPrism) ? (rPrism || lPrism) : undefined,
+        rightPrism: rPrism > 0 ? rPrism : undefined,
+        leftPrism: lPrism > 0 ? lPrism : undefined,
+        rightAddn: rAdd > 0 ? rAdd : undefined,
+        leftAddn: lAdd > 0 ? lAdd : undefined,
         remarks: targetRemarks,
       }),
     };

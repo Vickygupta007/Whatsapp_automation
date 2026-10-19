@@ -4,6 +4,7 @@ import { MockRioErpClient } from '../src/integrations/rio-erp/mockClient.js';
 import { WhatsAppClient } from '../src/integrations/whatsapp/client.js';
 import { NormalizationService } from '../src/services/normalizationService.js';
 import { formatRegionalOrderId, WorkflowService } from '../src/services/workflowService.js';
+import { PendingOrderService } from '../src/services/pendingOrderService.js';
 import { ARCO_ORDER_FORMAT, AUTO_REPLY_TEMPLATES, RIO_ORDER_FORMAT } from '../src/types/classifier.js';
 import { MetaWebhookPayload, NormalizedMessage } from '../src/types/webhook.js';
 
@@ -1150,6 +1151,65 @@ R: -1.00 cyl`;
     expect(statusRes.category).toBe('ORDER_STATUS');
     expect(statusRes.replyText).toContain('📦 Order: *MUM-10-1075*');
     expect(statusRes.replyText).toContain('Lab: *RIO-MUMBAI*');
+  });
+
+  // Test 27: Stylized WhatsApp profile name decoding in greeting
+  it('27. Stylized profile names: "√!©|<y Gu¶t@" is decoded cleanly to "Vicky Gupta"', async () => {
+    const greetingMsg: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: '√!©|<y Gu¶t@',
+      messageId: `wamid.GREETING_${Date.now()}`,
+      messageType: 'text',
+      text: 'Hiii',
+      mediaId: null,
+      rawPayload: {},
+    };
+    const res = await workflow.processNormalizedMessage(greetingMsg);
+    expect(res.category).toBe('GREETING');
+    expect(res.replyText).toContain('👋 Hello Vicky Gupta,');
+    expect(res.replyText).not.toContain('√!©|<y Gu¶t@');
+  });
+
+  // Test 28: Menu option "1" returns ORDER_FORMAT even when pending draft exists
+  it('28. Menu option "1": always delivers ORDER_FORMAT and does not trigger CONFIRM_ORDER', async () => {
+    // 1. Create a pending draft order
+    PendingOrderService.savePendingOrder({
+      id: 'draft-test-1',
+      phone: registeredPhone,
+      party: { name: 'amk', accountId: '100027', labName: 'RIO-AHMEDABAD' },
+      order: {
+        customerRefNo: 'PENDING-001',
+        product: 'HYPE B B',
+        rx: {
+          right: { sph: '-1.00', cyl: '0.00', axis: 0 },
+          left: { sph: '-1.00', cyl: '0.00', axis: 0 },
+        },
+      } as any,
+      messageId: 'msg-draft-1',
+      createdAt: new Date(),
+    });
+
+    expect(PendingOrderService.hasPendingOrder(registeredPhone)).toBe(true);
+
+    // 2. Customer replies "1" intending Menu Option 1
+    const menuMsg: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Vicky Gupta',
+      messageId: `wamid.MENU_1_${Date.now()}`,
+      messageType: 'text',
+      text: '1',
+      mediaId: null,
+      recipientPhoneNumberId: '1327525300446181',
+      rawPayload: {},
+    };
+
+    const res = await workflow.processNormalizedMessage(menuMsg);
+    expect(res.category).toBe('ORDER_FORMAT');
+    expect(res.replyText).toContain('Order Format Guide');
+    expect(res.replyText).not.toContain('We encountered an issue punching your confirmed order');
+
+    // Clean up
+    PendingOrderService.removePendingOrder(registeredPhone);
   });
 });
 
