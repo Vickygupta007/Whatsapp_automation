@@ -97,4 +97,80 @@ describe('ImageOcrService - Google Cloud Vision API Integration', () => {
     expect(result).toBeNull();
     (config as any).GOOGLE_VISION_API_KEY = origKey;
   });
+
+  it('should call Claude Sonnet 5.5 Vision API as primary and extract optical prescription JSON', async () => {
+    const origKey = config.ANTHROPIC_API_KEY;
+    (config as any).ANTHROPIC_API_KEY = 'sk-ant-test-key-123';
+
+    const mockClaudeResponse = {
+      data: {
+        content: [
+          {
+            text: JSON.stringify({
+              isPrescription: true,
+              customerRef: 'PATIENT-CLAUDE-01',
+              product: 'HYPE B B',
+              lensType: 'Single Vision',
+              coating: 'BLUE CUT',
+              index: '1.56',
+              dia: '75',
+              tintColor: 'Grey',
+              fittingType: 'supra',
+              remarks: 'Urgent',
+              right: { sph: '-1.00', cyl: '-0.50', axis: 90, add: '+2.00' },
+              left: { sph: '-1.25', cyl: '-0.75', axis: 85, add: '+2.00' }
+            })
+          }
+        ]
+      }
+    };
+
+    const postSpy = vi.spyOn(axios, 'post').mockResolvedValueOnce(mockClaudeResponse as any);
+
+    const fakeBuffer = Buffer.from('prescription-image-sample');
+    const extracted = await ImageOcrService.callClaudeSonnetVision(fakeBuffer, 'image/jpeg', null);
+
+    expect(postSpy).toHaveBeenCalledWith(
+      'https://api.anthropic.com/v1/messages',
+      expect.objectContaining({
+        model: 'claude-sonnet-5-5',
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'user',
+            content: expect.arrayContaining([
+              expect.objectContaining({ type: 'image' }),
+              expect.objectContaining({ type: 'text' })
+            ])
+          })
+        ])
+      }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-api-key': 'sk-ant-test-key-123',
+          'anthropic-version': '2023-06-01'
+        })
+      })
+    );
+
+    expect(extracted).not.toBeNull();
+    expect(extracted?.customerRef).toBe('PATIENT-CLAUDE-01');
+    expect(extracted?.product).toBe('HYPE B B');
+    expect(extracted?.right?.sph).toBe('-1.00');
+    expect(extracted?.left?.sph).toBe('-1.25');
+
+    (config as any).ANTHROPIC_API_KEY = origKey;
+  });
+
+  it('should gracefully handle Claude Sonnet failure and return null', async () => {
+    const origKey = config.ANTHROPIC_API_KEY;
+    (config as any).ANTHROPIC_API_KEY = 'sk-ant-test-key-123';
+
+    vi.spyOn(axios, 'post').mockRejectedValue(new Error('Anthropic API 401 Unauthorized'));
+
+    const fakeBuffer = Buffer.from('prescription-image');
+    const result = await ImageOcrService.callClaudeSonnetVision(fakeBuffer, 'image/jpeg');
+
+    expect(result).toBeNull();
+    (config as any).ANTHROPIC_API_KEY = origKey;
+  });
 });

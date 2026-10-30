@@ -80,7 +80,20 @@ export class ImageOcrService {
       }
     }
 
-    // 3. Use Gemini Vision AI (with image + Google Cloud Vision OCR ground truth text)
+    // 3. Primary: Anthropic Claude Sonnet 5.5 Vision AI (Highest Accuracy for Handwriting & Prescriptions)
+    if (config.ANTHROPIC_API_KEY && process.env.NODE_ENV !== 'test') {
+      try {
+        const extracted = await this.callClaudeSonnetVision(imageBuffer, mimeType, visionOcrText);
+        if (extracted && extracted.isPrescription) {
+          logger.info('[ImageOcrService] Successfully extracted prescription using Claude Sonnet 5.5 (Primary)');
+          return this.convertToParsedOrder(extracted, phone);
+        }
+      } catch (claudeErr: unknown) {
+        logger.warn(`[ImageOcrService] Claude Sonnet Vision OCR failed, falling back to Gemini: ${String(claudeErr)}`);
+      }
+    }
+
+    // 4. Secondary / Fallback: Google Gemini Vision AI
     if (config.GEMINI_API_KEY && process.env.NODE_ENV !== 'test') {
       try {
         const extracted = await this.callGeminiVision(imageBuffer, mimeType, visionOcrText);
@@ -189,6 +202,215 @@ export class ImageOcrService {
         ? `${err.response?.status} ${JSON.stringify(err.response?.data)}`
         : String(err);
       logger.error(`[ImageOcrService] Google Cloud Vision API call failed: ${errorDetail}`);
+      return null;
+    }
+  }
+
+
+  /**
+   * Calls Anthropic Claude Sonnet 5.5 Vision API to analyze image and extract optical prescription JSON (Primary)
+   */
+  public static async callClaudeSonnetVision(
+    imageBuffer: Buffer,
+    mimeType: string,
+    ocrText?: string | null
+  ): Promise<ExtractedPrescription | null> {
+    const apiKey = config.ANTHROPIC_API_KEY;
+    if (!apiKey) return null;
+
+    const base64Image = imageBuffer.toString('base64');
+    const prompt = `You are an expert optical prescription reader for an ophthalmic lens manufacturing lab (Rio Digital Lenses / Rio ERP).
+Analyze this prescription image (which may be a doctor's hand-written prescription slip, an optical POS screen photo, or a computerized lens order).
+IMPORTANT: The image or printed slip may be rotated sideways (90° or 270°), tilted, or upside down (180°). Please orient and read all printed/handwritten fields carefully regardless of orientation.
+
+CRITICAL INSTRUCTION: Extract EXACTLY what is written on the slip. NEVER guess, assume, or hallucinate fields that are not present. If a field or box is blank, omitted, or not mentioned, you MUST set its value to null.
+
+Extract all optical prescription details:
+1. Right Eye (OD / R / RIGHT EYE):
+   - SPH (Sphere): standard diopter format as written e.g. "6.5", "+7.5", "-2.20", "0.00"
+   - CYL (Cylinder): diopter format as written e.g. "6.5", "4.5", "-1.50", "0.00"
+   - AXIS: integer 0-180 (e.g. 80, 20, 60, 90, 180)
+   - ADD (Near Addition): e.g. "+2.50", "+3.00", or null if blank/empty
+2. Left Eye (OS / L / LEFT EYE):
+   - SPH: e.g. "6.5", "-3.25", "+1.75", "0.00"
+   - CYL: e.g. "4.5", "-1.50", "+1.25", "0.00"
+   - AXIS: integer 0-180 (e.g. 90, 70, 15, 180)
+   - ADD: e.g. "+2.50", or null if blank/empty
+3. Product Name / Brand:
+   - Extract EXACT text from "PRODUCT NAME" or "PRODUCT" label, e.g. "RX BIFOCAL EXECUTIVE", "XD ORBIT", "I SIGHT". Return null if not present.
+4. Lens Type / Vision Type:
+   - Extract ONLY if explicitly written in a "VISION TYPE", "LENS TYPE", or "TYPE" field. If the box is blank/empty, return null. Do NOT assume "Single Vision" or "Bifocal".
+5. Coating:
+   - Extract ONLY if explicitly written on the slip (e.g. "BLUE CUT", "ARC", "HMC", "HC"). If coating is NOT written, return null. DO NOT default or guess "BLUE CUT".
+6. Index:
+   - Extract ONLY if explicitly written on the slip (e.g. "1.50", "1.53", "1.56", "1.58", "1.59", "1.60", "1.67", "1.74"). If index is NOT written, return null. DO NOT default or guess "1.56".
+7. Customer Reference (Customer Name / Optician / Ref):
+   - Look for "CUSTOMER NAME", "OPTICIAN NAME", "PT NAME", "REF", "ORDER NO". If both customer name and optician name are present, combine them like "Customer Name / Optician Name" (e.g. "Sharvari / Amin optics").
+8. Frame & Lens Specifications (look closely at all labels):
+   - Diameter / Dia: Look for "DIAMETER", "DIA", e.g. "68", "75". Extract as string (e.g. "68") or null.
+   - Tint / Color: Look for "TINT", "COLOR", "COLOUR", e.g. "Blue", "Solid Grey 15%". Extract as string (e.g. "Blue") or null. Note: Tint/Color is not coating.
+   - Fitting Type / Fitting HT / Fit: Look for "FITTING HT", "FITTING TYPE", "FITTING", "FIT", e.g. "Rimless", "supra", "Full Rim". Extract as string (e.g. "Rimless") or null.
+   - Remarks / Notes: Special instructions if any, or null.
+
+Return ONLY a JSON object with this exact structure:
+{
+  "isPrescription": true,
+  "customerRef": "string or null",
+  "product": "string or null",
+  "lensType": "string or null",
+  "coating": "string or null",
+  "index": "string or null",
+  "dia": "string or null",
+  "tintColor": "string or null",
+  "fittingType": "string or null",
+  "remarks": "string or null",
+  "right": {
+    "sph": "string or number or null",
+    "cyl": "string or number or null",
+    "axis": number or null,
+    "add": "string or number or null"
+  },
+  "left": {
+    "sph": "string or number or null",
+    "cyl": "string or number or null",
+    "axis": number or null,
+    "add": "string or number or null"
+  },
+  "notes": "string or null"
+}`;
+
+    const finalPrompt = ocrText && ocrText.trim()
+      ? `${prompt}\n\n[Google Cloud Vision OCR Detected Ground Truth Text from Image]:\n"""\n${ocrText.trim()}\n"""\nUse the above OCR text as exact reference to verify numbers, letters, product names, and signs (+/-).`
+      : prompt;
+
+    const models = [
+      'claude-sonnet-5-5',
+      'claude-3-5-sonnet-20241022',
+      'claude-3-7-sonnet-20250219',
+    ];
+
+    let anthropicMime = mimeType;
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)) {
+      anthropicMime = 'image/jpeg';
+    }
+
+    let responseText: string | null = null;
+
+    for (const model of models) {
+      try {
+        logger.info(`[ImageOcrService] Sending prescription image to Claude Sonnet Vision API (${model})...`);
+        const response = await axios.post(
+          'https://api.anthropic.com/v1/messages',
+          {
+            model,
+            max_tokens: 1500,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'image',
+                    source: {
+                      type: 'base64',
+                      media_type: anthropicMime,
+                      data: base64Image,
+                    },
+                  },
+                  {
+                    type: 'text',
+                    text: `${finalPrompt}\n\nIMPORTANT: Return ONLY the raw JSON object. Do not wrap in markdown or add explanations.`,
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            headers: {
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'content-type': 'application/json',
+            },
+            timeout: 25000,
+          }
+        );
+
+        const content = response.data?.content;
+        if (Array.isArray(content) && content.length > 0) {
+          responseText = content.map((c: any) => c.text || '').join('');
+          if (responseText && responseText.trim()) {
+            logger.info(`[ImageOcrService] Claude Sonnet (${model}) responded successfully`);
+            break;
+          }
+        }
+      } catch (err: unknown) {
+        const errorDetail = axios.isAxiosError(err)
+          ? `${err.response?.status} ${JSON.stringify(err.response?.data)}`
+          : String(err);
+        logger.warn(`[ImageOcrService] Claude model ${model} failed: ${errorDetail}`);
+      }
+    }
+
+    if (!responseText) {
+      logger.warn('[ImageOcrService] All Claude models returned empty response or failed');
+      return null;
+    }
+
+    try {
+      const cleaned = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const raw = JSON.parse(cleaned) as Record<string, unknown>;
+
+      const rawDia = (raw.dia ?? raw.diameter ?? raw.diaMeter) as string | number | null | undefined;
+      const rawTint = (raw.tintColor ?? raw.tint ?? raw.color ?? raw.colour ?? raw.tinting ?? raw.colorName) as string | null | undefined;
+      const rawFit = (raw.fittingType ?? raw.fitting ?? raw.fittingHt ?? raw.fit ?? raw.frameType) as string | null | undefined;
+      const rawRef = (raw.customerRef ?? raw.ref ?? raw.order_no ?? raw.customerRefNo ?? raw.customerName ?? raw.customer ?? raw.opticianName) as string | null | undefined;
+      const rawRemarks = (raw.remarks ?? raw.remark ?? raw.notes ?? raw.specialInstructions ?? raw.specialRemark) as string | null | undefined;
+
+      const parsed: ExtractedPrescription = {
+        isPrescription: raw.isPrescription !== false,
+        customerRef: rawRef ? String(rawRef).trim() : null,
+        product: (raw.product || raw.productName) as string | null,
+        lensType: (raw.lensType || raw.lens_type) as string | null,
+        coating: (raw.coating || raw.coatingType) as string | null,
+        index: (raw.index || raw.refractiveIndex) as string | null,
+        dia: rawDia !== undefined && rawDia !== null ? String(rawDia).trim() : null,
+        tintColor: rawTint ? String(rawTint).trim() : null,
+        fittingType: rawFit ? String(rawFit).trim() : null,
+        remarks: rawRemarks ? String(rawRemarks).trim() : null,
+        right: (raw.right as ExtractedPrescription['right']) || {
+          sph: (raw.right_sph ?? raw.r_sph ?? raw.rightSph) as string | number | null,
+          cyl: (raw.right_cyl ?? raw.r_cyl ?? raw.rightCyl) as string | number | null,
+          axis: (raw.right_axis ?? raw.r_axis ?? raw.rightAxis) as number | null,
+          add: (raw.right_add ?? raw.r_add ?? raw.rightAdd) as string | number | null,
+        },
+        left: (raw.left as ExtractedPrescription['left']) || {
+          sph: (raw.left_sph ?? raw.l_sph ?? raw.leftSph) as string | number | null,
+          cyl: (raw.left_cyl ?? raw.l_cyl ?? raw.leftCyl) as string | number | null,
+          axis: (raw.left_axis ?? raw.l_axis ?? raw.leftAxis) as number | null,
+          add: (raw.left_add ?? raw.l_add ?? raw.leftAdd) as string | number | null,
+        },
+        notes: (raw.notes || raw.specialInstructions) as string | undefined,
+        rawText: responseText,
+      };
+
+      const hasRx = Boolean(
+        parsed.right?.sph || parsed.right?.cyl || parsed.left?.sph || parsed.left?.cyl ||
+        parsed.product || parsed.customerRef
+      );
+
+      parsed.isPrescription = hasRx;
+
+      logger.info('[ImageOcrService] Claude Sonnet 5.5 successfully parsed prescription', {
+        ref: parsed.customerRef,
+        product: parsed.product,
+        dia: parsed.dia,
+        tintColor: parsed.tintColor,
+        fittingType: parsed.fittingType,
+        right: parsed.right,
+        left: parsed.left,
+      });
+      return parsed;
+    } catch (parseErr) {
+      logger.error(`[ImageOcrService] Failed to parse Claude Sonnet response as JSON: ${responseText}`);
       return null;
     }
   }

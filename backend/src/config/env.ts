@@ -34,6 +34,7 @@ const envSchema = z.object({
 
   // Gemini Vision AI Configuration for Prescription Image Recognition
   GEMINI_API_KEY: z.string().default(''),
+  ANTHROPIC_API_KEY: z.string().default(''),
 
   // Google Cloud Vision API Configuration for Prescription OCR
   GOOGLE_VISION_API_KEY: z.string().default(''),
