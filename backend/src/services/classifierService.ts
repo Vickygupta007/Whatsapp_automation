@@ -75,17 +75,6 @@ export class ClassifierService {
     // Strip trailing punctuation (. , ! ?) for exact keyword matching
     const cleanLower = lower.replace(/^[!.,?#\s]+|[!.,?#\s]+$/g, '');
 
-    // Rule: CONFIRM_ALL (e.g. "confirm all", "confirm all orders", "approve all")
-    const CONFIRM_ALL_REGEX = /^(confirm\s*all(\s*orders?)?|approve\s*all|place\s*all(\s*orders?)?|✅\s*confirm\s*all)$/i;
-    if (CONFIRM_ALL_REGEX.test(cleanLower)) {
-      return {
-        category: 'CONFIRM_ALL_ORDERS',
-        replyText: AUTO_REPLY_TEMPLATES.CONFIRM_ALL_ORDERS,
-        reason: 'Matched confirm all orders request',
-        detectedKeywords: [cleanLower],
-      };
-    }
-
     // Rule: CONFIRM_ORDER (Button click or text confirmation e.g. "confirm 1", "confirm sharma", "confirm:draft_123")
     const hasPendingOrder = PendingOrderService.hasPendingOrder(phone);
     const confirmMatch = cleanLower.match(/^(?:confirm_draft|confirm)[\s:_]+(.+)$/i);

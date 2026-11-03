@@ -1309,22 +1309,37 @@ R: -1.00 cyl`;
     expect(remainingAfter1.length).toBe(2);
     expect(remainingAfter1.map(d => d.order.customerRefNo)).toEqual(['PATEL', 'KHAN']);
 
-    // 6. Customer confirms all remaining orders using "CONFIRM ALL"
-    const confirmAllMsg: NormalizedMessage = {
+    // 6. Customer confirms remaining orders one by one (Order #2 Patel, then Order #3 Khan)
+    const confirmMsg2: NormalizedMessage = {
       phone: registeredPhone,
       customerName: 'Ash',
-      messageId: 'wamid.CONFIRM_ALL',
-      messageType: 'text',
-      text: 'CONFIRM ALL',
+      messageId: 'wamid.CONFIRM_2',
+      messageType: 'interactive',
+      text: `confirm:${allDrafts[1].id}`,
       mediaId: null,
       recipientPhoneNumberId: '1327525300446181',
       rawPayload: {},
     };
-    const confirmAllRes = await workflow.processNormalizedMessage(confirmAllMsg);
-    expect(confirmAllRes.category).toBe('CONFIRM_ALL_ORDERS');
-    expect(confirmAllRes.replyText).toContain('ALL PENDING ORDERS CONFIRMED!');
-    expect(confirmAllRes.replyText).toContain('PATEL');
-    expect(confirmAllRes.replyText).toContain('KHAN');
+    const confirmRes2 = await workflow.processNormalizedMessage(confirmMsg2);
+    expect(confirmRes2.category).toBe('CONFIRM_ORDER');
+    expect(confirmRes2.replyText).toContain('ORDER CONFIRMED');
+    expect(confirmRes2.replyText).toContain('Ref: *PATEL*');
+    expect(confirmRes2.replyText).toContain('1 pending prescription(s) remaining');
+
+    const confirmMsg3: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.CONFIRM_3',
+      messageType: 'interactive',
+      text: `confirm:${allDrafts[2].id}`,
+      mediaId: null,
+      recipientPhoneNumberId: '1327525300446181',
+      rawPayload: {},
+    };
+    const confirmRes3 = await workflow.processNormalizedMessage(confirmMsg3);
+    expect(confirmRes3.category).toBe('CONFIRM_ORDER');
+    expect(confirmRes3.replyText).toContain('ORDER CONFIRMED');
+    expect(confirmRes3.replyText).toContain('Ref: *KHAN*');
 
     // All drafts should now be cleared
     expect(PendingOrderService.getAllPendingOrders(registeredPhone).length).toBe(0);

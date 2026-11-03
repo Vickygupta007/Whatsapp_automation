@@ -751,72 +751,6 @@ ${leftEyeText}
         };
 
         replyText = verificationText;
-      } else if (isCustomerRegistered && classification.category === 'CONFIRM_ALL_ORDERS') {
-        const allDrafts = PendingOrderService.getAllPendingOrders(phone);
-        if (allDrafts.length === 0) {
-          replyText = `ℹ️ *No Active Orders Found*\n\nThere are no pending orders waiting for confirmation.\n\n📸 Send a photo of your prescription slip to place an order!`;
-        } else {
-          const confirmedSummaries: string[] = [];
-          for (const draft of allDrafts) {
-            try {
-              const erpOrderReq = RioErpMapper.toErpOrderRequest(draft.order, draft.party || party);
-              const erpResponse = await activeErp.createOrder(erpOrderReq);
-              const labName = draft.party?.labName || party?.labName || erpResponse.party?.labName || `${store.name}-LAB`;
-              const rawErpOrderId = erpResponse.orderId;
-              const regionalOrderId = formatRegionalOrderId(rawErpOrderId, labName);
-
-              const dbOrder = await AppRepository.createOrder({
-                messageId,
-                phone,
-                customerRefNo: draft.order.customerRefNo,
-                product: draft.order.product,
-                lensType: draft.order.lensType,
-                coating: draft.order.coating,
-                index: draft.order.index,
-                rxData: {
-                  ...draft.order.rx,
-                  dia: draft.order.dia || null,
-                  tintColor: draft.order.tintColor || null,
-                  fittingType: draft.order.fittingType || null,
-                  remarks: draft.order.remarks || null,
-                },
-                rawMessage: draft.rawText || (draft.mediaId ? `[CONFIRMED_BATCH_ORDER] Ref: ${draft.order.customerRefNo}` : `[CONFIRMED_ORDER] Ref: ${draft.order.customerRefNo}`),
-                status: 'ORDER_CREATED',
-                storeId: store.id,
-              });
-
-              await AppRepository.updateOrderWithErpResult(
-                dbOrder.id,
-                regionalOrderId,
-                erpResponse.orderRef || rawErpOrderId || '',
-                'ORDER_CREATED',
-                erpOrderReq,
-                erpResponse
-              );
-
-              PendingOrderService.removePendingOrder(phone, draft.id);
-
-              const dRef = draft.order.customerRefNo || `Slip #${draft.index || 1}`;
-              const dProduct = draft.order.product || 'Standard Lens';
-              confirmedSummaries.push(`• Ref: *${dRef}* (${dProduct}) -> Order ID: *${regionalOrderId}*`);
-            } catch (err: unknown) {
-              logger.error(`[WorkflowService] Batch order punch failed for draft ${draft.id}: ${String(err)}`);
-              confirmedSummaries.push(`• Ref: *${draft.order.customerRefNo || draft.id}* -> ⚠️ Failed to punch in ERP`);
-            }
-          }
-
-          const storeDisplayName = store.id === 'rio' ? 'Rio Digital Lenses' : store.name;
-          replyText = `🎉 *ALL PENDING ORDERS CONFIRMED!*
-
-👓 *${storeDisplayName}*
-The following work orders have been created in ERP:
-
-${confirmedSummaries.join('\n')}
-
-🏭 Lab technicians are now preparing your lenses.
-💬 Reply *STATUS* anytime for live progress!`;
-          finalStatus = 'CONFIRMATION_SENT';
-        }
       } else if (isCustomerRegistered && classification.category === 'CONFIRM_ORDER') {
         const targetDraftId = classification.orderDetails?.targetDraftId as string | undefined;
         const pendingDraft = PendingOrderService.getPendingOrder(phone, targetDraftId);
@@ -872,7 +806,7 @@ ${confirmedSummaries.join('\n')}
             PendingOrderService.removePendingOrder(phone, pendingDraft.id);
             const remainingDrafts = PendingOrderService.getAllPendingOrders(phone);
             const remainingNotice = remainingDrafts.length > 0
-              ? `\n\nℹ️ *${remainingDrafts.length} pending prescription(s) remaining.* Tap *Confirm* on the remaining slips, or reply *CONFIRM ALL* to punch all remaining orders!`
+              ? `\n\nℹ️ *${remainingDrafts.length} pending prescription(s) remaining.* Please review and tap *Confirm* on the other slip(s) to place them.`
               : '';
 
             const displayBrand = erpOrderReq.brand || pendingDraft.order.brand || '';
