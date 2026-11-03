@@ -173,4 +173,113 @@ describe('ImageOcrService - Google Cloud Vision API Integration', () => {
     expect(result).toBeNull();
     (config as any).ANTHROPIC_API_KEY = origKey;
   });
+  describe('Smart Tiered Vision Routing (Gemini Free -> Claude Sonnet Escalation)', () => {
+    it('should correctly identify confident extraction vs complex/unclear extraction', () => {
+      // Confident extraction
+      expect(ImageOcrService.isExtractionConfident({
+        isPrescription: true,
+        readability: 'clear',
+        right: { sph: '-1.00', cyl: '0.00', axis: 0 },
+        left: { sph: '-1.25', cyl: '0.00', axis: 0 }
+      })).toBe(true);
+
+      // Flagged as complex_or_unclear by Gemini
+      expect(ImageOcrService.isExtractionConfident({
+        isPrescription: true,
+        readability: 'complex_or_unclear',
+        right: { sph: '-1.00', cyl: '0.00', axis: 0 },
+        left: { sph: '-1.25', cyl: '0.00', axis: 0 }
+      })).toBe(false);
+
+      // Missing all optical powers
+      expect(ImageOcrService.isExtractionConfident({
+        isPrescription: true,
+        readability: 'clear',
+        right: { sph: null, cyl: null },
+        left: { sph: null, cyl: null }
+      })).toBe(false);
+
+      // Ambiguous / Question mark in powers
+      expect(ImageOcrService.isExtractionConfident({
+        isPrescription: true,
+        readability: 'clear',
+        right: { sph: '-1.00?', cyl: '0.00', axis: 0 },
+        left: { sph: 'unclear', cyl: '0.00', axis: 0 }
+      })).toBe(false);
+    });
+
+    it('should route clear normal images to Gemini (Free Tier) without calling Claude', async () => {
+      const origNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      const origGeminiKey = config.GEMINI_API_KEY;
+      const origClaudeKey = config.ANTHROPIC_API_KEY;
+      (config as any).GEMINI_API_KEY = 'test-gemini-key';
+      (config as any).ANTHROPIC_API_KEY = 'test-claude-key';
+
+      const geminiSpy = vi.spyOn(ImageOcrService, 'callGeminiVision').mockResolvedValueOnce({
+        isPrescription: true,
+        readability: 'clear',
+        customerRef: 'CLEAR-PATIENT',
+        product: 'I SIGHT',
+        right: { sph: '-2.00', cyl: '-0.50', axis: 90 },
+        left: { sph: '-1.75', cyl: '0.00', axis: 0 }
+      });
+
+      const claudeSpy = vi.spyOn(ImageOcrService, 'callClaudeSonnetVision');
+
+      const fakeBuffer = Buffer.from('clear-prescription-image');
+      const result = await ImageOcrService.extractPrescriptionFromImage(fakeBuffer, 'image/jpeg', null, '919876543210');
+
+      expect(geminiSpy).toHaveBeenCalled();
+      expect(claudeSpy).not.toHaveBeenCalled();
+      expect(result).not.toBeNull();
+      expect(result?.order.customerRefNo).toBe('CLEAR-PATIENT');
+      expect(result?.order.rx.right.sph).toBe('-2.00');
+
+      process.env.NODE_ENV = origNodeEnv;
+      (config as any).GEMINI_API_KEY = origGeminiKey;
+      (config as any).ANTHROPIC_API_KEY = origClaudeKey;
+    });
+
+    it('should automatically escalate complex or unclear handwriting from Gemini to Claude Sonnet 5.5', async () => {
+      const origNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      const origGeminiKey = config.GEMINI_API_KEY;
+      const origClaudeKey = config.ANTHROPIC_API_KEY;
+      (config as any).GEMINI_API_KEY = 'test-gemini-key';
+      (config as any).ANTHROPIC_API_KEY = 'test-claude-key';
+
+      // Gemini flags image as complex / unclear
+      vi.spyOn(ImageOcrService, 'callGeminiVision').mockResolvedValueOnce({
+        isPrescription: true,
+        readability: 'complex_or_unclear',
+        customerRef: 'MESSY-HANDWRITING',
+        right: { sph: 'unclear?', cyl: null },
+        left: { sph: null, cyl: null }
+      });
+
+      // Claude Sonnet resolves it with high precision
+      const claudeSpy = vi.spyOn(ImageOcrService, 'callClaudeSonnetVision').mockResolvedValueOnce({
+        isPrescription: true,
+        customerRef: 'MESSY-HANDWRITING',
+        product: 'HYPE B B',
+        right: { sph: '+1.50', cyl: '-0.50', axis: 45 },
+        left: { sph: '+1.75', cyl: '-0.75', axis: 135 }
+      });
+
+      const fakeBuffer = Buffer.from('messy-handwriting-image');
+      const result = await ImageOcrService.extractPrescriptionFromImage(fakeBuffer, 'image/jpeg', null, '919876543210');
+
+      expect(claudeSpy).toHaveBeenCalled();
+      expect(result).not.toBeNull();
+      expect(result?.order.customerRefNo).toBe('MESSY-HANDWRITING');
+      expect(result?.order.product).toBe('HYPE B B');
+      expect(result?.order.rx.right.sph).toBe('+1.50');
+      expect(result?.order.rx.left.sph).toBe('+1.75');
+
+      process.env.NODE_ENV = origNodeEnv;
+      (config as any).GEMINI_API_KEY = origGeminiKey;
+      (config as any).ANTHROPIC_API_KEY = origClaudeKey;
+    });
+  });
 });

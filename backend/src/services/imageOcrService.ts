@@ -6,6 +6,7 @@ import { OrderParser } from '../parsers/orderParser.js';
 
 export interface ExtractedPrescription {
   isPrescription: boolean;
+  readability?: 'clear' | 'complex_or_unclear';
   customerRef?: string | null;
   product?: string | null;
   lensType?: string | null;
@@ -80,29 +81,46 @@ export class ImageOcrService {
       }
     }
 
-    // 3. Primary: Anthropic Claude Sonnet 5.5 Vision AI (Highest Accuracy for Handwriting & Prescriptions)
-    if (config.ANTHROPIC_API_KEY && process.env.NODE_ENV !== 'test') {
+    // 3. Smart Cascading Strategy:
+    // Step 3A: Google Gemini Vision AI (FREE TIER: 1,500 daily requests for normal/clean prescriptions)
+    let geminiExtracted: ExtractedPrescription | null = null;
+    if (config.GEMINI_API_KEY && process.env.NODE_ENV !== 'test') {
       try {
-        const extracted = await this.callClaudeSonnetVision(imageBuffer, mimeType, visionOcrText);
-        if (extracted && extracted.isPrescription) {
-          logger.info('[ImageOcrService] Successfully extracted prescription using Claude Sonnet 5.5 (Primary)');
-          return this.convertToParsedOrder(extracted, phone);
+        geminiExtracted = await this.callGeminiVision(imageBuffer, mimeType, visionOcrText);
+        if (geminiExtracted && this.isExtractionConfident(geminiExtracted)) {
+          logger.info('[ImageOcrService] Gemini Vision (Free Tier) extracted clear prescription with high confidence. Using Gemini ($0 cost)', {
+            ref: geminiExtracted.customerRef,
+            product: geminiExtracted.product,
+            right: geminiExtracted.right,
+            left: geminiExtracted.left,
+          });
+          return this.convertToParsedOrder(geminiExtracted, phone);
+        } else if (geminiExtracted) {
+          logger.info('[ImageOcrService] Gemini extracted partial/unclear prescription. Escalating to Claude Sonnet 5.5 for complex handwriting reasoning...');
         }
-      } catch (claudeErr: unknown) {
-        logger.warn(`[ImageOcrService] Claude Sonnet Vision OCR failed, falling back to Gemini: ${String(claudeErr)}`);
+      } catch (geminiErr: unknown) {
+        logger.warn(`[ImageOcrService] Gemini Vision failed, escalating to Claude Sonnet: ${String(geminiErr)}`);
       }
     }
 
-    // 4. Secondary / Fallback: Google Gemini Vision AI
-    if (config.GEMINI_API_KEY && process.env.NODE_ENV !== 'test') {
+    // Step 3B: Anthropic Claude Sonnet 5.5 Vision AI (Highest Accuracy for Complex/Doctor Handwriting)
+    if (config.ANTHROPIC_API_KEY && process.env.NODE_ENV !== 'test') {
       try {
-        const extracted = await this.callGeminiVision(imageBuffer, mimeType, visionOcrText);
-        if (extracted && extracted.isPrescription) {
-          return this.convertToParsedOrder(extracted, phone);
+        logger.info('[ImageOcrService] Calling Claude Sonnet 5.5 for high-precision optical reasoning on complex image...');
+        const claudeExtracted = await this.callClaudeSonnetVision(imageBuffer, mimeType, visionOcrText);
+        if (claudeExtracted && claudeExtracted.isPrescription) {
+          logger.info('[ImageOcrService] Claude Sonnet 5.5 successfully resolved complex prescription!');
+          return this.convertToParsedOrder(claudeExtracted, phone);
         }
-      } catch (err: unknown) {
-        logger.error(`[ImageOcrService] Gemini Vision OCR failed: ${String(err)}`);
+      } catch (claudeErr: unknown) {
+        logger.warn(`[ImageOcrService] Claude Sonnet Vision OCR failed: ${String(claudeErr)}`);
       }
+    }
+
+    // Step 3C: Fallback to Gemini's result if Claude failed or was unavailable
+    if (geminiExtracted && geminiExtracted.isPrescription) {
+      logger.info('[ImageOcrService] Using best-effort Gemini extraction as fallback');
+      return this.convertToParsedOrder(geminiExtracted, phone);
     }
 
     // 4. Fallback to OrderParser with Google Cloud Vision OCR text if Gemini was unavailable
@@ -252,9 +270,12 @@ Extract all optical prescription details:
    - Fitting Type / Fitting HT / Fit: Look for "FITTING HT", "FITTING TYPE", "FITTING", "FIT", e.g. "Rimless", "supra", "Full Rim". Extract as string (e.g. "Rimless") or null.
    - Remarks / Notes: Special instructions if any, or null.
 
+CRITICAL INSTRUCTION: If the image contains blurry numbers, ambiguous handwriting, or uncertain digits, set "readability": "complex_or_unclear". If numbers are clear and readable, set "readability": "clear".
+
 Return ONLY a JSON object with this exact structure:
 {
   "isPrescription": true,
+  "readability": "clear or complex_or_unclear",
   "customerRef": "string or null",
   "product": "string or null",
   "lensType": "string or null",
@@ -367,6 +388,7 @@ Return ONLY a JSON object with this exact structure:
 
       const parsed: ExtractedPrescription = {
         isPrescription: raw.isPrescription !== false,
+        readability: (raw.readability === 'complex_or_unclear' || raw.readability === 'unclear') ? 'complex_or_unclear' : 'clear',
         customerRef: rawRef ? String(rawRef).trim() : null,
         product: (raw.product || raw.productName) as string | null,
         lensType: (raw.lensType || raw.lens_type) as string | null,
@@ -418,7 +440,7 @@ Return ONLY a JSON object with this exact structure:
   /**
    * Calls Google Gemini Vision API to analyze image and extract optical prescription JSON
    */
-  private static async callGeminiVision(
+  public static async callGeminiVision(
     imageBuffer: Buffer,
     mimeType: string,
     ocrText?: string | null
@@ -606,6 +628,43 @@ Return ONLY a JSON object with this exact structure:
       logger.error(`[ImageOcrService] Failed to parse Gemini response as JSON: ${responseText}`);
       return null;
     }
+  }
+
+  /**
+   * Evaluates if Gemini's extracted prescription is clear, complete, and confident.
+   * If false, image is considered complex/messy and escalated to Claude Sonnet 5.5.
+   */
+  public static isExtractionConfident(extracted: ExtractedPrescription | null): boolean {
+    if (!extracted || !extracted.isPrescription) return false;
+    if (extracted.readability === 'complex_or_unclear') return false;
+
+    const rSph = extracted.right?.sph;
+    const lSph = extracted.left?.sph;
+    const rCyl = extracted.right?.cyl;
+    const lCyl = extracted.left?.cyl;
+
+    const hasRight = (rSph !== null && rSph !== undefined && String(rSph).trim() !== '') ||
+                     (rCyl !== null && rCyl !== undefined && String(rCyl).trim() !== '');
+    const hasLeft = (lSph !== null && lSph !== undefined && String(lSph).trim() !== '') ||
+                    (lCyl !== null && lCyl !== undefined && String(lCyl).trim() !== '');
+
+    // Clear normal prescription requires at least one eye power to be clearly present
+    if (!hasRight && !hasLeft) {
+      return false;
+    }
+
+    // Check for ambiguity markers or question marks in powers
+    const checkValues = [rSph, lSph, rCyl, lCyl, extracted.right?.add, extracted.left?.add];
+    for (const v of checkValues) {
+      if (v !== null && v !== undefined) {
+        const str = String(v).toLowerCase().trim();
+        if (str.includes('?') || str.includes('unclear') || str.includes('illegible') || str.includes('unreadable') || str.includes('maybe')) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   /**
