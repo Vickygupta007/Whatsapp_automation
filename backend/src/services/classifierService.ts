@@ -75,26 +75,43 @@ export class ClassifierService {
     // Strip trailing punctuation (. , ! ?) for exact keyword matching
     const cleanLower = lower.replace(/^[!.,?#\s]+|[!.,?#\s]+$/g, '');
 
-    // Rule: CONFIRM_ORDER (Button click or text confirmation)
+    // Rule: CONFIRM_ALL (e.g. "confirm all", "confirm all orders", "approve all")
+    const CONFIRM_ALL_REGEX = /^(confirm\s*all(\s*orders?)?|approve\s*all|place\s*all(\s*orders?)?|✅\s*confirm\s*all)$/i;
+    if (CONFIRM_ALL_REGEX.test(cleanLower)) {
+      return {
+        category: 'CONFIRM_ALL_ORDERS',
+        replyText: AUTO_REPLY_TEMPLATES.CONFIRM_ALL_ORDERS,
+        reason: 'Matched confirm all orders request',
+        detectedKeywords: [cleanLower],
+      };
+    }
+
+    // Rule: CONFIRM_ORDER (Button click or text confirmation e.g. "confirm 1", "confirm sharma", "confirm:draft_123")
     const hasPendingOrder = PendingOrderService.hasPendingOrder(phone);
+    const confirmMatch = cleanLower.match(/^(?:confirm_draft|confirm)[\s:_]+(.+)$/i);
     const CONFIRM_REGEX = /^(confirm_order|confirm_image_order|confirm(\s*order)?|yes|y|ok|okay|proceed|approve|place\s*order|✅\s*confirm(\s*order)?)$/i;
-    if (CONFIRM_REGEX.test(cleanLower) || (hasPendingOrder && cleanLower === 'confirm')) {
+    if (confirmMatch || CONFIRM_REGEX.test(cleanLower) || (hasPendingOrder && cleanLower === 'confirm')) {
+      const targetDraft = confirmMatch ? confirmMatch[1].trim() : undefined;
       return {
         category: 'CONFIRM_ORDER',
         replyText: AUTO_REPLY_TEMPLATES.CONFIRM_ORDER,
         reason: 'Matched order confirmation request',
         detectedKeywords: [cleanLower],
+        orderDetails: targetDraft ? { targetDraftId: targetDraft } : undefined,
       };
     }
 
-    // Rule: EDIT_ORDER (Button click or text edit request)
+    // Rule: EDIT_ORDER (Button click or text edit request e.g. "edit 1", "edit sharma", "edit:draft_123")
+    const editMatch = cleanLower.match(/^(?:edit_draft|edit)[\s:_]+(.+)$/i);
     const EDIT_REGEX = /^(edit_order|edit_image_order|edit(\s*details|\s*order)?|change|modify|correction|update|✏️\s*edit(\s*details|\s*order)?)$/i;
-    if (EDIT_REGEX.test(cleanLower)) {
+    if (editMatch || EDIT_REGEX.test(cleanLower)) {
+      const targetDraft = editMatch ? editMatch[1].trim() : undefined;
       return {
         category: 'EDIT_ORDER',
         replyText: AUTO_REPLY_TEMPLATES.EDIT_ORDER,
         reason: 'Matched order edit request',
         detectedKeywords: [cleanLower],
+        orderDetails: targetDraft ? { targetDraftId: targetDraft } : undefined,
       };
     }
 

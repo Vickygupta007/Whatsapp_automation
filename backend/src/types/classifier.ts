@@ -8,6 +8,7 @@ export type MessageCategory =
   | 'THANK_YOU'
   | 'UNREGISTERED_CUSTOMER'
   | 'CONFIRM_ORDER'
+  | 'CONFIRM_ALL_ORDERS'
   | 'EDIT_ORDER'
   | 'IMAGE_ORDER_VERIFICATION'
   | 'ORDER_VERIFICATION'
@@ -139,6 +140,8 @@ Your WhatsApp number is not linked to a Rio ERP account.
 Please contact your Rio Digital Lenses lab coordinator to activate your account.`,
 
   CONFIRM_ORDER: `✅ Processing your order confirmation...`,
+
+  CONFIRM_ALL_ORDERS: `✅ Processing all pending orders...`,
 
   EDIT_ORDER: `✏️ *Edit Prescription*
 

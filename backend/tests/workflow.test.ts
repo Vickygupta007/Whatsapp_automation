@@ -17,6 +17,7 @@ describe('WhatsApp Auto-Reply System - 12 Core Test Suites', () => {
   beforeEach(() => {
     AppRepository.clearMemoryStore();
     WhatsAppClient.clearSentLog();
+    PendingOrderService.clearAll();
     mockErp = new MockRioErpClient();
     workflow = new WorkflowService(mockErp);
   });
@@ -1210,6 +1211,123 @@ R: -1.00 cyl`;
 
     // Clean up
     PendingOrderService.removePendingOrder(registeredPhone);
+  });
+
+  // Test 29: Batch Multi-Image Ordering (5-10 images sent at once)
+  it('29. Batch Multi-Image Ordering: should allow confirming and editing one by one or confirming all', async () => {
+    PendingOrderService.clearAll();
+    WhatsAppClient.clearSentLog();
+
+    // 1. Customer sends Image 1 (Ref: SHARMA)
+    const img1: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.BATCH_IMG_1',
+      messageType: 'image',
+      text: 'Ref: SHARMA R: -1.00 L: -1.25 Bluecut 1.56',
+      mediaId: 'media_sharma_01',
+      recipientPhoneNumberId: '1327525300446181',
+      rawPayload: {},
+    };
+    const res1 = await workflow.processNormalizedMessage(img1);
+    expect(res1.category).toBe('IMAGE_ORDER_VERIFICATION');
+
+    // 2. Customer sends Image 2 (Ref: PATEL)
+    const img2: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.BATCH_IMG_2',
+      messageType: 'image',
+      text: 'Ref: PATEL R: +2.00 L: +1.50 Bluecut 1.56',
+      mediaId: 'media_patel_02',
+      recipientPhoneNumberId: '1327525300446181',
+      rawPayload: {},
+    };
+    const res2 = await workflow.processNormalizedMessage(img2);
+    expect(res2.category).toBe('IMAGE_ORDER_VERIFICATION');
+    expect(res2.replyText).toContain('[Order #2] (2 of 2)');
+    expect(res2.replyText).toContain('*PATEL*');
+
+    // 3. Customer sends Image 3 (Ref: KHAN)
+    const img3: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.BATCH_IMG_3',
+      messageType: 'image',
+      text: 'Ref: KHAN R: -3.00 L: -2.50 Bluecut 1.56',
+      mediaId: 'media_khan_03',
+      recipientPhoneNumberId: '1327525300446181',
+      rawPayload: {},
+    };
+    const res3 = await workflow.processNormalizedMessage(img3);
+    expect(res3.category).toBe('IMAGE_ORDER_VERIFICATION');
+    expect(res3.replyText).toContain('[Order #3] (3 of 3)');
+    expect(res3.replyText).toContain('*KHAN*');
+
+    // Verify all 3 drafts are stored independently
+    const allDrafts = PendingOrderService.getAllPendingOrders(registeredPhone);
+    expect(allDrafts.length).toBe(3);
+    expect(allDrafts[0].order.customerRefNo).toBe('SHARMA');
+    expect(allDrafts[1].order.customerRefNo).toBe('PATEL');
+    expect(allDrafts[2].order.customerRefNo).toBe('KHAN');
+
+    // 4. Customer edits Order #2 (Patel)
+    const editMsg: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.EDIT_2',
+      messageType: 'interactive',
+      text: `edit:${allDrafts[1].id}`,
+      mediaId: null,
+      recipientPhoneNumberId: '1327525300446181',
+      rawPayload: {},
+    };
+    const editRes = await workflow.processNormalizedMessage(editMsg);
+    expect(editRes.category).toBe('EDIT_ORDER');
+    expect(editRes.replyText).toContain('Edit Prescription');
+    expect(editRes.replyText).toContain('Ref: PATEL');
+
+    // 5. Customer confirms Order #1 (Sharma) first
+    const confirmMsg1: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.CONFIRM_1',
+      messageType: 'interactive',
+      text: `confirm:${allDrafts[0].id}`,
+      mediaId: null,
+      recipientPhoneNumberId: '1327525300446181',
+      rawPayload: {},
+    };
+    const confirmRes1 = await workflow.processNormalizedMessage(confirmMsg1);
+    expect(confirmRes1.category).toBe('CONFIRM_ORDER');
+    expect(confirmRes1.replyText).toContain('ORDER CONFIRMED');
+    expect(confirmRes1.replyText).toContain('Ref: *SHARMA*');
+    expect(confirmRes1.replyText).toContain('2 pending prescription(s) remaining');
+
+    // Verify Sharma is punched and removed, but Patel and Khan remain in queue
+    const remainingAfter1 = PendingOrderService.getAllPendingOrders(registeredPhone);
+    expect(remainingAfter1.length).toBe(2);
+    expect(remainingAfter1.map(d => d.order.customerRefNo)).toEqual(['PATEL', 'KHAN']);
+
+    // 6. Customer confirms all remaining orders using "CONFIRM ALL"
+    const confirmAllMsg: NormalizedMessage = {
+      phone: registeredPhone,
+      customerName: 'Ash',
+      messageId: 'wamid.CONFIRM_ALL',
+      messageType: 'text',
+      text: 'CONFIRM ALL',
+      mediaId: null,
+      recipientPhoneNumberId: '1327525300446181',
+      rawPayload: {},
+    };
+    const confirmAllRes = await workflow.processNormalizedMessage(confirmAllMsg);
+    expect(confirmAllRes.category).toBe('CONFIRM_ALL_ORDERS');
+    expect(confirmAllRes.replyText).toContain('ALL PENDING ORDERS CONFIRMED!');
+    expect(confirmAllRes.replyText).toContain('PATEL');
+    expect(confirmAllRes.replyText).toContain('KHAN');
+
+    // All drafts should now be cleared
+    expect(PendingOrderService.getAllPendingOrders(registeredPhone).length).toBe(0);
   });
 });
 

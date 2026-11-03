@@ -425,9 +425,10 @@ export class WorkflowService {
       let classification = ClassifierService.classify(text, isCustomerRegistered, phone, store.id);
 
       if (imageExtractedOrder && imageExtractedOrder.isOrder) {
-        // Save pending draft order awaiting customer confirmation
+        // Save pending draft order in multi-order queue
+        const draftId = `draft_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         PendingOrderService.savePendingOrder({
-          id: `draft_${Date.now()}`,
+          id: draftId,
           phone,
           party,
           order: imageExtractedOrder.order,
@@ -435,6 +436,12 @@ export class WorkflowService {
           messageId,
           createdAt: new Date(),
         });
+
+        const currentDraft = PendingOrderService.getPendingOrder(phone, draftId);
+        const draftIndex = currentDraft?.index || 1;
+        const allDrafts = PendingOrderService.getAllPendingOrders(phone);
+        const totalDrafts = allDrafts.length;
+        const totalIndicator = totalDrafts > 1 ? ` (${draftIndex} of ${totalDrafts})` : '';
 
         const rx = imageExtractedOrder.order.rx;
         const r = rx?.right || {};
@@ -460,7 +467,7 @@ export class WorkflowService {
         const extraSpecsSection = extraSpecsList ? `\n\n⚙️ *Specifications:*\n${extraSpecsList}` : '';
 
         const orderInfoLines = [
-          ref ? `🔖 *Ref:* *${ref}*` : '',
+          ref ? `🔖 *Ref:* *${ref}*` : `🔖 *Ref:* *Slip #${draftIndex}*`,
           product ? `📦 *Product:* *${product}*` : '',
           lensType ? `📑 *Type:* *${lensType}*` : '',
           index ? `🔢 *Index:* *${index}*` : '',
@@ -468,7 +475,11 @@ export class WorkflowService {
         ].filter(Boolean).join('\n');
         const orderInfoSection = orderInfoLines ? `\n\n${orderInfoLines}` : '';
 
-        const verificationText = `👓 *VERIFY PRESCRIPTION*
+        const orderNumTitle = totalDrafts > 1 ? ` [Order #${draftIndex}]` : '';
+        const confirmBtnTitle = totalDrafts > 1 ? `✅ Confirm #${draftIndex}` : '✅ Confirm Order';
+        const editBtnTitle = totalDrafts > 1 ? `✏️ Edit #${draftIndex}` : '✏️ Edit Details';
+
+        const verificationText = `👓 *VERIFY PRESCRIPTION*${orderNumTitle}${totalIndicator}
 
 We scanned your prescription:${orderInfoSection}${extraSpecsSection}
 
@@ -482,7 +493,7 @@ We scanned your prescription:${orderInfoSection}${extraSpecsSection}
 • CYL: *${l.cyl || '0.00'}*
 • AXIS: *${l.axis ?? 0}°*${leftAdd}
 
-👇 Please tap *Confirm* or *Edit* below:`;
+👇 Please tap *${confirmBtnTitle}* or *${editBtnTitle}* below:`;
 
         classification = {
           category: 'IMAGE_ORDER_VERIFICATION',
@@ -490,6 +501,9 @@ We scanned your prescription:${orderInfoSection}${extraSpecsSection}
           reason: 'Optical lens prescription extracted from image, awaiting customer confirmation or edit',
           orderDetails: {
             fromImage: true,
+            draftId,
+            draftIndex,
+            totalDrafts,
             customerRefNo: ref,
             product,
             coating,
@@ -638,8 +652,9 @@ Send *STATUS <Order-ID>* (e.g. *STATUS SO-2026-00124*).`;
         });
 
         // Save pending draft order awaiting customer confirmation
+        const textDraftId = `draft_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         PendingOrderService.savePendingOrder({
-          id: `draft_${Date.now()}`,
+          id: textDraftId,
           phone,
           party,
           order: parsedOrder.order,
@@ -647,6 +662,10 @@ Send *STATUS <Order-ID>* (e.g. *STATUS SO-2026-00124*).`;
           messageId,
           createdAt: new Date(),
         });
+        const currentTextDraft = PendingOrderService.getPendingOrder(phone, textDraftId);
+        const textDraftIndex = currentTextDraft?.index || 1;
+        const allTextDrafts = PendingOrderService.getAllPendingOrders(phone);
+        const totalTextDrafts = allTextDrafts.length;
 
         const rx = parsedOrder.order.rx;
         const r = rx?.right || {};
@@ -719,6 +738,9 @@ ${leftEyeText}
           reason: 'Optical lens order parsed from text, awaiting customer confirmation or edit',
           orderDetails: {
             fromText: true,
+            draftId: textDraftId,
+            draftIndex: textDraftIndex,
+            totalDrafts: totalTextDrafts,
             customerRefNo: ref,
             product,
             coating,
@@ -729,8 +751,75 @@ ${leftEyeText}
         };
 
         replyText = verificationText;
+      } else if (isCustomerRegistered && classification.category === 'CONFIRM_ALL_ORDERS') {
+        const allDrafts = PendingOrderService.getAllPendingOrders(phone);
+        if (allDrafts.length === 0) {
+          replyText = `ℹ️ *No Active Orders Found*\n\nThere are no pending orders waiting for confirmation.\n\n📸 Send a photo of your prescription slip to place an order!`;
+        } else {
+          const confirmedSummaries: string[] = [];
+          for (const draft of allDrafts) {
+            try {
+              const erpOrderReq = RioErpMapper.toErpOrderRequest(draft.order, draft.party || party);
+              const erpResponse = await activeErp.createOrder(erpOrderReq);
+              const labName = draft.party?.labName || party?.labName || erpResponse.party?.labName || `${store.name}-LAB`;
+              const rawErpOrderId = erpResponse.orderId;
+              const regionalOrderId = formatRegionalOrderId(rawErpOrderId, labName);
+
+              const dbOrder = await AppRepository.createOrder({
+                messageId,
+                phone,
+                customerRefNo: draft.order.customerRefNo,
+                product: draft.order.product,
+                lensType: draft.order.lensType,
+                coating: draft.order.coating,
+                index: draft.order.index,
+                rxData: {
+                  ...draft.order.rx,
+                  dia: draft.order.dia || null,
+                  tintColor: draft.order.tintColor || null,
+                  fittingType: draft.order.fittingType || null,
+                  remarks: draft.order.remarks || null,
+                },
+                rawMessage: draft.rawText || (draft.mediaId ? `[CONFIRMED_BATCH_ORDER] Ref: ${draft.order.customerRefNo}` : `[CONFIRMED_ORDER] Ref: ${draft.order.customerRefNo}`),
+                status: 'ORDER_CREATED',
+                storeId: store.id,
+              });
+
+              await AppRepository.updateOrderWithErpResult(
+                dbOrder.id,
+                regionalOrderId,
+                erpResponse.orderRef || rawErpOrderId || '',
+                'ORDER_CREATED',
+                erpOrderReq,
+                erpResponse
+              );
+
+              PendingOrderService.removePendingOrder(phone, draft.id);
+
+              const dRef = draft.order.customerRefNo || `Slip #${draft.index || 1}`;
+              const dProduct = draft.order.product || 'Standard Lens';
+              confirmedSummaries.push(`• Ref: *${dRef}* (${dProduct}) -> Order ID: *${regionalOrderId}*`);
+            } catch (err: unknown) {
+              logger.error(`[WorkflowService] Batch order punch failed for draft ${draft.id}: ${String(err)}`);
+              confirmedSummaries.push(`• Ref: *${draft.order.customerRefNo || draft.id}* -> ⚠️ Failed to punch in ERP`);
+            }
+          }
+
+          const storeDisplayName = store.id === 'rio' ? 'Rio Digital Lenses' : store.name;
+          replyText = `🎉 *ALL PENDING ORDERS CONFIRMED!*
+
+👓 *${storeDisplayName}*
+The following work orders have been created in ERP:
+
+${confirmedSummaries.join('\n')}
+
+🏭 Lab technicians are now preparing your lenses.
+💬 Reply *STATUS* anytime for live progress!`;
+          finalStatus = 'CONFIRMATION_SENT';
+        }
       } else if (isCustomerRegistered && classification.category === 'CONFIRM_ORDER') {
-        const pendingDraft = PendingOrderService.getPendingOrder(phone);
+        const targetDraftId = classification.orderDetails?.targetDraftId as string | undefined;
+        const pendingDraft = PendingOrderService.getPendingOrder(phone, targetDraftId);
         if (pendingDraft) {
           const erpOrderReq = RioErpMapper.toErpOrderRequest(pendingDraft.order, pendingDraft.party || party);
 
@@ -780,7 +869,11 @@ ${leftEyeText}
               party: erpResponse.party || party,
             });
 
-            PendingOrderService.removePendingOrder(phone);
+            PendingOrderService.removePendingOrder(phone, pendingDraft.id);
+            const remainingDrafts = PendingOrderService.getAllPendingOrders(phone);
+            const remainingNotice = remainingDrafts.length > 0
+              ? `\n\nℹ️ *${remainingDrafts.length} pending prescription(s) remaining.* Tap *Confirm* on the remaining slips, or reply *CONFIRM ALL* to punch all remaining orders!`
+              : '';
 
             const displayBrand = erpOrderReq.brand || pendingDraft.order.brand || '';
             const displayProduct = erpOrderReq.product || pendingDraft.order.product || pendingDraft.order.productName || '';
@@ -825,7 +918,7 @@ ${refDetailLine}${brandDetailLine}${productDetailLine}${categoryDetailLine}${typ
 ${amountLine}${extraLines ? extraLines + '\n' : ''}
 🏭 Your order has been placed in ${storeDisplayName} ERP. Lab technicians are now preparing your lenses.
 
-💬 Reply *STATUS* anytime for live progress!`;
+💬 Reply *STATUS* anytime for live progress!` + remainingNotice;
 
             finalStatus = 'CONFIRMATION_SENT';
           } catch (erpErr: unknown) {
@@ -844,7 +937,8 @@ There is no pending order waiting for confirmation.
 *ORDER Ref: Sharma R: -1.50/-0.50x90 L: -2.00/-0.50x85 Bluecut 1.56*`;
         }
       } else if (classification.category === 'EDIT_ORDER') {
-        const pendingDraft = PendingOrderService.getPendingOrder(phone);
+        const targetDraftId = classification.orderDetails?.targetDraftId as string | undefined;
+        const pendingDraft = PendingOrderService.getPendingOrder(phone, targetDraftId);
         if (pendingDraft && pendingDraft.order) {
           const ord = pendingDraft.order;
           const r = ord.rx?.right || {};
@@ -1327,17 +1421,25 @@ Example: *STATUS ${store.id === 'rio' ? 'SO-2026-581335720' : 'S(26-27)#1'}*
       // Send WhatsApp message to customer via Meta Cloud API
       try {
         if (classification.category === 'IMAGE_ORDER_VERIFICATION' || classification.category === 'ORDER_VERIFICATION') {
+          const draftId = (classification.orderDetails?.draftId as string) || '';
+          const draftIndex = (classification.orderDetails?.draftIndex as number) || 1;
+          const totalDrafts = (classification.orderDetails?.totalDrafts as number) || 1;
+          const confirmBtnId = (totalDrafts > 1 && draftId) ? `confirm:${draftId}` : 'confirm_order';
+          const editBtnId = (totalDrafts > 1 && draftId) ? `edit:${draftId}` : 'edit_order';
+          const confirmTitle = totalDrafts > 1 ? `✅ Confirm #${draftIndex}` : '✅ Confirm Order';
+          const editTitle = totalDrafts > 1 ? `✏️ Edit #${draftIndex}` : '✏️ Edit Details';
+
           await WhatsAppClient.sendInteractiveButtons(
             phone,
             replyText,
             [
-              { id: 'confirm_order', title: '✅ Confirm Order' },
-              { id: 'edit_order', title: '✏️ Edit Details' },
+              { id: confirmBtnId, title: confirmTitle },
+              { id: editBtnId, title: editTitle },
             ],
             classification.category === 'IMAGE_ORDER_VERIFICATION'
-              ? '👓 Prescription Verification'
-              : '👓 Order Verification',
-            'Tap button or reply CONFIRM / EDIT',
+              ? (totalDrafts > 1 ? `👓 Verification #${draftIndex}` : '👓 Prescription Verification')
+              : (totalDrafts > 1 ? `👓 Order #${draftIndex}` : '👓 Order Verification'),
+            `Tap button or reply CONFIRM / EDIT`,
             waOptions
           );
         } else if (statusInteractiveList && replyText.length <= 1000) {
