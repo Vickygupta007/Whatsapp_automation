@@ -267,7 +267,8 @@ npm run dev
 | `RIO_ERP_API_KEY` | Rio ERP integration secret key | `rio_whatsapp_secret_key_2026` |
 | `RIO_ERP_AUTH_TYPE` | Auth method (`api-key` / `bearer` / `basic`) | `api-key` |
 | `RIO_ERP_USE_MOCK` | Set `true` to simulate Rio ERP offline | `false` |
-| `WHATSAPP_PHONE_NUMBER_ID` | Meta WhatsApp Phone Number ID | `1327525300446181` |
+| `WHATSAPP_PHONE_NUMBER_ID` | Meta WhatsApp Phone Number ID | `861941873673246` |
+| `WHATSAPP_WABA_ID` | Meta WhatsApp Business Account (WABA) ID | `1930130357846204` |
 | `WHATSAPP_ACCESS_TOKEN` | Meta System User Graph API Token | `EAA...` |
 | `WHATSAPP_VERIFY_TOKEN` | Custom token to verify webhook with Meta | `rio_erp_verify_2026` |
 | `WHATSAPP_USE_MOCK` | Set `true` to log WhatsApp replies to console | `false` |
