@@ -281,5 +281,89 @@ describe('ImageOcrService - Google Cloud Vision API Integration', () => {
       (config as any).GEMINI_API_KEY = origGeminiKey;
       (config as any).ANTHROPIC_API_KEY = origClaudeKey;
     });
+
+    it('should call Groq Vision API and extract optical prescription JSON', async () => {
+      const origGroqKey = config.GROQ_API_KEY;
+      (config as any).GROQ_API_KEY = 'test-groq-key';
+
+      const mockGroqResponse = {
+        data: {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  isPrescription: true,
+                  readability: 'clear',
+                  customerRef: 'GROQ-PATIENT-01',
+                  product: 'I SIGHT',
+                  lensType: 'Single Vision',
+                  coating: 'BLUE CUT',
+                  index: '1.56',
+                  dia: '70',
+                  right: { sph: '-2.00', cyl: '-0.50', axis: 90, add: null },
+                  left: { sph: '-2.50', cyl: '-0.25', axis: 180, add: null },
+                }),
+              },
+            },
+          ],
+        },
+      };
+
+      const postSpy = vi.spyOn(axios, 'post').mockResolvedValueOnce(mockGroqResponse as any);
+
+      const fakeBuffer = Buffer.from('groq-test-image');
+      const result = await ImageOcrService.callGroqVision(fakeBuffer, 'image/jpeg');
+
+      expect(postSpy).toHaveBeenCalledWith(
+        'https://api.groq.com/openai/v1/chat/completions',
+        expect.objectContaining({
+          model: 'qwen/qwen3.8-27b',
+          response_format: { type: 'json_object' },
+        }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer test-groq-key',
+          }),
+        })
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.isPrescription).toBe(true);
+      expect(result?.customerRef).toBe('GROQ-PATIENT-01');
+      expect(result?.product).toBe('I SIGHT');
+      expect(result?.right?.sph).toBe('-2.00');
+      expect(result?.left?.sph).toBe('-2.50');
+
+      (config as any).GROQ_API_KEY = origGroqKey;
+    });
+
+    it('should use Groq Vision as ultra-fast tier in multi-engine cascading pipeline', async () => {
+      const origNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      const origGroqKey = config.GROQ_API_KEY;
+      (config as any).GROQ_API_KEY = 'test-groq-key';
+
+      const groqSpy = vi.spyOn(ImageOcrService, 'callGroqVision').mockResolvedValueOnce({
+        isPrescription: true,
+        readability: 'clear',
+        customerRef: 'GROQ-FAST-01',
+        product: 'XD ORBIT',
+        lensType: 'Progressive',
+        right: { sph: '+1.00', cyl: '-0.50', axis: 90 },
+        left: { sph: '+1.25', cyl: '-0.75', axis: 80 }
+      });
+
+      const fakeBuffer = Buffer.from('groq-fast-image');
+      const result = await ImageOcrService.extractPrescriptionFromImage(fakeBuffer, 'image/jpeg', null, '919876543210');
+
+      expect(groqSpy).toHaveBeenCalled();
+      expect(result).not.toBeNull();
+      expect(result?.order.customerRefNo).toBe('GROQ-FAST-01');
+      expect(result?.order.product).toBe('XD ORBIT');
+      expect(result?.order.rx.right.sph).toBe('+1.00');
+
+      process.env.NODE_ENV = origNodeEnv;
+      (config as any).GROQ_API_KEY = origGroqKey;
+    });
   });
 });

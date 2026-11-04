@@ -32,6 +32,9 @@ const envSchema = z.object({
   WHATSAPP_VERIFY_TOKEN: z.string().default('rio_erp_verify_2026'),
   WHATSAPP_USE_MOCK: z.preprocess((val) => val === 'true' || val === true, z.boolean()).default(false),
 
+  // Groq API for High-Speed High-Accuracy Optical Vision OCR
+  GROQ_API_KEY: z.string().default(''),
+
   // Gemini Vision AI Configuration for Prescription Image Recognition
   GEMINI_API_KEY: z.string().default(''),
   ANTHROPIC_API_KEY: z.string().default(''),

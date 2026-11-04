@@ -569,11 +569,7 @@ export class AppRepository {
           if (!storeId && raw?.recipientPhoneNumberId) {
             if (raw.recipientPhoneNumberId === '1273435872528900') {
               storeId = 'arco';
-            } else if (
-              raw.recipientPhoneNumberId === '861941873673246' ||
-              raw.recipientPhoneNumberId === '1327525300446181' ||
-              raw.recipientPhoneNumberId === '1225478070642817'
-            ) {
+            } else if (raw.recipientPhoneNumberId === '1327525300446181' || raw.recipientPhoneNumberId === '1225478070642817') {
               storeId = 'rio';
             }
           }
@@ -649,11 +645,7 @@ export class AppRepository {
           if (!storeId && raw?.recipientPhoneNumberId) {
             if (raw.recipientPhoneNumberId === '1273435872528900') {
               storeId = 'arco';
-            } else if (
-              raw.recipientPhoneNumberId === '861941873673246' ||
-              raw.recipientPhoneNumberId === '1327525300446181' ||
-              raw.recipientPhoneNumberId === '1225478070642817'
-            ) {
+            } else if (raw.recipientPhoneNumberId === '1327525300446181' || raw.recipientPhoneNumberId === '1225478070642817') {
               storeId = 'rio';
             }
           }

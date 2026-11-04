@@ -30,10 +30,12 @@ services:
       - key: WHATSAPP_ACCESS_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
-        value: "861941873673246"
-      - key: WHATSAPP_WABA_ID
-        value: "1930130357846204"
+        value: "1327525300446181"
       - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
         sync: false
       - key: RIO_ERP_BASE_URL
         value: "http://200.234.35.179:3000"
